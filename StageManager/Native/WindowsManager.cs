@@ -105,6 +105,7 @@ namespace StageManager.Native
 			});
 
 			thread.Name = "WindowsManager";
+			thread.IsBackground = true; // must not keep the process alive after quitting
 			thread.Start();
 
 			return Task.CompletedTask;

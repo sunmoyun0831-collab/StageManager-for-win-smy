@@ -30,6 +30,7 @@ namespace StageManager.Native.Window
         int ProcessId { get; }
         string ProcessFileName { get; }
         string ProcessName { get; }
+        string AppName { get; }
 
         bool CanLayout { get; }
 

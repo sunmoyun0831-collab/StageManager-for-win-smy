@@ -24,6 +24,7 @@ namespace StageManager.Native
 		private string _processFileName;
 		private string _processExecutable;
 		private IWindowLocation _lastLocation;
+		private string? _appName;
 
 		public WindowsWindow(IntPtr handle)
 		{
@@ -34,16 +35,8 @@ namespace StageManager.Native
 				var process = GetProcessByWindowHandle(_handle);
 				_processId = process.Id;
 				_processName = process.ProcessName;
-				_processExecutable = process.MainModule.FileName;
-
-				try
-				{
-					_processFileName = Path.GetFileName(process.MainModule.FileName);
-				}
-				catch (System.ComponentModel.Win32Exception)
-				{
-					_processFileName = "--NA--";
-				}
+				_processExecutable = GetProcessExecutable(process);
+				_processFileName = string.IsNullOrEmpty(_processExecutable) ? "--NA--" : Path.GetFileName(_processExecutable);
 			}
 			catch (Exception)
 			{
@@ -68,6 +61,55 @@ namespace StageManager.Native
 			}
 
 			return process;
+		}
+
+		private static string? GetProcessExecutable(Process process)
+		{
+			try
+			{
+				return process.MainModule?.FileName;
+			}
+			catch (System.ComponentModel.Win32Exception)
+			{
+				// MainModule is not accessible for elevated processes like the Task Manager, the limited query works for those as well
+				var processHandle = Win32.OpenProcess(Win32.PROCESS_QUERY_LIMITED_INFORMATION, false, process.Id);
+				if (processHandle == IntPtr.Zero)
+					return null;
+
+				try
+				{
+					var buffer = new StringBuilder(1024);
+					var size = buffer.Capacity;
+					return Win32.QueryFullProcessImageName(processHandle, 0, buffer, ref size) ? buffer.ToString() : null;
+				}
+				finally
+				{
+					Win32.CloseHandle(processHandle);
+				}
+			}
+		}
+
+		/// <summary>
+		/// A readable app name like "Windows Explorer" taken from the executable, falls back to the process name.
+		/// </summary>
+		public string AppName => _appName ??= GetAppName();
+
+		private string GetAppName()
+		{
+			try
+			{
+				if (!string.IsNullOrEmpty(_processExecutable))
+				{
+					var description = FileVersionInfo.GetVersionInfo(_processExecutable).FileDescription;
+					if (!string.IsNullOrWhiteSpace(description))
+						return description.Trim();
+				}
+			}
+			catch (IOException)
+			{
+			}
+
+			return _processName;
 		}
 
 		public bool DidManualHide => _didManualHide;

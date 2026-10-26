@@ -6,6 +6,7 @@ using StageManager.Native;
 using StageManager.Native.PInvoke;
 using StageManager.Native.Interop;
 using StageManager.Native.Window;
+using StageManager.Settings;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -17,6 +18,7 @@ using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Threading;
 
 namespace StageManager
 {
@@ -32,7 +34,7 @@ namespace StageManager
 		private TaskPoolGlobalHook _hook;
 		private WindowMode _mode;
 		private double _lastWidth;
-		private Timer _overlapCheckTimer;
+		private DispatcherTimer _overlapCheckTimer;
 		private Point _mouse = new Point(0, 0);
 		private SceneModel _removedCurrentScene;
 		private SceneModel _mouseDownScene;
@@ -46,7 +48,9 @@ namespace StageManager
 
 			DataContext = this;
 
-			_overlapCheckTimer = new Timer(OverlapCheck, null, 2500, TIMERINTERVAL_MILLISECONDS);
+			// runs on the UI thread, the scenes must not be read while they are changed
+			_overlapCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TIMERINTERVAL_MILLISECONDS) };
+			_overlapCheckTimer.Tick += (_, _) => OverlapCheck();
 
 			SwitchSceneCommand = new ActionCommand(async model => await SceneManager!.SwitchTo(((SceneModel)model).Scene));
 		}
@@ -67,7 +71,9 @@ namespace StageManager
 
 			trayIcon.Dispose();
 
-			SceneManager.Stop();
+			_overlapCheckTimer.Stop();
+			SceneManager?.Stop();
+			App.RestoreState = null;
 
 			base.OnClosed(e);
 
@@ -81,7 +87,8 @@ namespace StageManager
 			_thisHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
 			var windowsManager = new WindowsManager();
-			SceneManager = new SceneManager(windowsManager);
+			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault());
+			App.RestoreState = SceneManager.Stop;
 			await SceneManager.Start().ConfigureAwait(true);
 
 			SceneManager.SceneChanged += SceneManager_SceneChanged;
@@ -93,6 +100,8 @@ namespace StageManager
 			var foregroundScene = SceneManager.FindSceneForWindow(foreground);
 			if (foregroundScene is object)
 				await SceneManager.SwitchTo(foregroundScene).ConfigureAwait(true);
+
+			_overlapCheckTimer.Start();
 		}
 
 		private void AddInitialScenes()
@@ -170,7 +179,7 @@ namespace StageManager
 		{
 			// if it's allowed to drag windows into scenes, we cannot hide the scenes
 			if (EnableWindowDropToScene)
-				_overlapCheckTimer.Change(TimeSpan.Zero, TimeSpan.Zero);
+				Dispatcher.Invoke(_overlapCheckTimer.Stop);
 
 			var foregroundWindow = Win32.GetForegroundWindow();
 			if (foregroundWindow != _thisHandle)
@@ -191,7 +200,7 @@ namespace StageManager
 			// if it's allowed to drag windows into scenes, we cannot hide the scenes
 			if (EnableWindowDropToScene)
 			{
-				_overlapCheckTimer.Change(0, TIMERINTERVAL_MILLISECONDS);
+				Dispatcher.Invoke(_overlapCheckTimer.Start);
 
 				var foregroundWindow = Win32.GetForegroundWindow();
 
@@ -335,9 +344,12 @@ namespace StageManager
 			}
 		}
 
-		private void OverlapCheck(object? _)
+		private void OverlapCheck()
 		{
-			var currentWindows = SceneManager.GetCurrentWindows().ToArray(); // in case the enumeration changes
+			if (SceneManager is null)
+				return;
+
+			var currentWindows = SceneManager.GetCurrentWindows().ToArray();
 			UpdateModeByWindows(currentWindows);
 		}
 
@@ -353,12 +365,7 @@ namespace StageManager
 							|| (Mode == WindowMode.Flyover && !containsMouse);
 
 			if (setMode)
-			{
-				Dispatcher.Invoke(() =>
-				{
-					Mode = anyOverlappingWindows ? WindowMode.OffScreen : WindowMode.OnScreen;
-				});
-			}
+				Mode = anyOverlappingWindows ? WindowMode.OffScreen : WindowMode.OnScreen;
 		}
 
 		private void NavigateToProjectPage()
