@@ -17,6 +17,10 @@
     Width="280"
     ShowActivated="False"
     Background="Transparent"
+    AllowDrop="True"
+    DragEnter="Window_DragOver"
+    DragOver="Window_DragOver"
+    Drop="Window_Drop"
     Name="thisWindow">
     <Window.Resources>
         <Style

@@ -33,6 +33,7 @@ namespace StageManager
 		private const string APP_NAME = "StageManager";
 		private const int EDGE_TRIGGER_WIDTH = 44;
 		private const int EDGE_DWELL_MILLISECONDS = 300;
+		private const int DRAG_HOVER_MILLISECONDS = 600;
 		private IntPtr _thisHandle;
 		private TaskPoolGlobalHook _hook;
 		private WindowMode _mode;
@@ -51,6 +52,8 @@ namespace StageManager
 		private Size _draggedWindowSize;
 		private volatile bool _isDraggingWindow;
 		private int _dragFeedbackPending;
+		private DispatcherTimer _dragHoverTimer;
+		private SceneModel? _dragHoverScene;
 
 		public static readonly DependencyProperty DropHintProperty = DependencyProperty.Register(nameof(DropHint), typeof(string), typeof(MainWindow));
 
@@ -66,6 +69,9 @@ namespace StageManager
 
 			_edgeDwellTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(EDGE_DWELL_MILLISECONDS) };
 			_edgeDwellTimer.Tick += EdgeDwellTimer_Tick;
+
+			_dragHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DRAG_HOVER_MILLISECONDS) };
+			_dragHoverTimer.Tick += DragHoverTimer_Tick;
 
 			DpiChanged += (_, _) => Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
@@ -383,15 +389,75 @@ namespace StageManager
 			return handle != IntPtr.Zero && Win32.GetAncestor(handle, Win32.GA.GA_ROOT) == _thisHandle;
 		}
 
+		/// <summary>
+		/// Files (or anything else) dragged over a scene switch to it after a moment, so they can be dropped on the windows of that scene.
+		/// Nothing can be dropped on the sidebar itself.
+		/// </summary>
+		private void Window_DragOver(object sender, DragEventArgs e)
+		{
+			e.Effects = DragDropEffects.None;
+			e.Handled = true;
+
+			var hovered = FindSceneAt(e.GetPosition(this));
+			if (ReferenceEquals(hovered, _dragHoverScene))
+				return;
+
+			_dragHoverScene = hovered;
+			_dragHoverTimer.Stop();
+
+			if (hovered is null)
+			{
+				SetDropFeedback(null, null);
+				return;
+			}
+
+			SetDropFeedback(hovered, "Keep holding to open this stage");
+			_dragHoverTimer.Start();
+		}
+
+		private void Window_Drop(object sender, DragEventArgs e)
+		{
+			e.Effects = DragDropEffects.None;
+			e.Handled = true;
+
+			ResetDragHover();
+		}
+
+		private void DragHoverTimer_Tick(object? sender, EventArgs e)
+		{
+			var hovered = _dragHoverScene;
+			ResetDragHover();
+
+			if (hovered is null || SceneManager is null || !Win32.GetCursorPos(out var cursor))
+				return;
+
+			// there is no reliable event when a drag leaves the sidebar, so check that it is still there
+			if (!ReferenceEquals(FindSceneByPoint(new Point(cursor.X, cursor.Y)), hovered))
+				return;
+
+			SceneManager.SwitchTo(hovered.Scene).SafeFireAndForget();
+		}
+
+		private void ResetDragHover()
+		{
+			_dragHoverTimer.Stop();
+			_dragHoverScene = null;
+			SetDropFeedback(null, null);
+		}
+
 		/// <param name="p">A point in physical screen coordinates</param>
-		private SceneModel FindSceneByPoint(Point p)
+		private SceneModel? FindSceneByPoint(Point p)
 		{
 			if (!IsVisible)
 				return null;
 
-			var pointOnWindow = PointFromScreen(p);
+			return FindSceneAt(PointFromScreen(p));
+		}
 
-			SceneModel model = null;
+		/// <param name="pointOnWindow">A point relative to the sidebar window in device independent units</param>
+		private SceneModel? FindSceneAt(Point pointOnWindow)
+		{
+			SceneModel? model = null;
 
 			var element = VisualTreeHelper.HitTest(this, pointOnWindow)?.VisualHit;
 
