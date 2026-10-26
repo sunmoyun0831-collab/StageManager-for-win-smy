@@ -80,7 +80,36 @@ namespace StageManager.Native
 			if (!order.TryGetValue(other, out var otherIndex))
 				return Array.Empty<IntPtr>();
 
-			return handles.Where(CanBeOrdered).Where(h => order.TryGetValue(h, out var index) && index > otherIndex).ToList();
+			// minimized and cloaked windows can't be seen anyway
+			return handles
+				.Where(h => CanBeOrdered(h) && !Win32.IsIconic(h) && !Win32Helper.IsCloaked(h))
+				.Where(h => order.TryGetValue(h, out var index) && index > otherIndex)
+				.ToList();
+		}
+
+		/// <summary>
+		/// Everything about a window that matters for ordering it, for logs
+		/// </summary>
+		public static string Describe(IntPtr handle)
+		{
+			var title = new System.Text.StringBuilder(256);
+			Win32.GetWindowText(handle, title, title.Capacity);
+			Win32.GetWindowThreadProcessId(handle, out var processId);
+
+			string processName;
+			try
+			{
+				processName = System.Diagnostics.Process.GetProcessById((int)processId).ProcessName;
+			}
+			catch (Exception)
+			{
+				processName = "?";
+			}
+
+			var elevated = ProcessElevation.IsElevated((int)processId);
+
+			return $"0x{handle.ToInt64():X} {processName} \"{title}\" class {Win32Helper.GetClassName(handle)}, " +
+				$"elevated: {(elevated is null ? "unknown" : elevated.Value ? "yes" : "no")}, topmost: {IsTopmost(handle)}, owner: 0x{Win32.GetWindow(handle, Win32.GW.GW_OWNER).ToInt64():X}";
 		}
 
 		/// <summary>

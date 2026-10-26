@@ -698,7 +698,8 @@ namespace StageManager
 			}
 			catch (HookException ex)
 			{
-				App.Log(ex);
+				// happens when the hook did not run (yet), nothing to stop then
+				DebugLog.Write($"Stopping the mouse hook failed: {ex.Message}");
 			}
 		}
 

@@ -47,7 +47,7 @@ namespace StageManager
 		private IntPtr _handle;
 		private bool _isArranging;
 		private int _arrangeVersion;
-		private int _reportedArrangeProblems;
+		private readonly HashSet<IntPtr> _reportedWindowsBehind = new HashSet<IntPtr>();
 		private System.Windows.Forms.Screen _screen;
 		private WallpaperInfo? _wallpaper;
 		private DateTime _wallpaperFileTime;
@@ -247,8 +247,14 @@ namespace StageManager
 			ZOrder.Raise(behind);
 			DebugLog.Write($"Still behind the backdrop, raised again: {DebugLog.Describe(behind)}");
 
-			if (_reportedArrangeProblems++ < 3)
-				App.Log(new InvalidOperationException($"{behind.Count} of {front.Length} windows of the scene were still behind the backdrop: {string.Join(", ", behind.Select(h => h.ToString("X")))}"));
+			await Task.Delay(ARRANGE_CHECK_DELAY_MILLISECONDS);
+
+			if (version != _arrangeVersion || !IsVisible)
+				return;
+
+			// windows that can't be raised at all are logged once, with what is needed to find out why
+			foreach (var handle in ZOrder.FindBehind(behind, _handle).Where(_reportedWindowsBehind.Add))
+				App.Log(new InvalidOperationException($"A window of the scene stays behind the backdrop: {ZOrder.Describe(handle)}"));
 		}
 
 		public void PutBehind(IntPtr window)
