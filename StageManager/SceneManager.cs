@@ -1,6 +1,5 @@
 ﻿using AsyncAwaitBestPractices;
 using StageManager.Native;
-using StageManager.Native.PInvoke;
 using StageManager.Native.Window;
 using StageManager.Settings;
 using StageManager.Strategies;
@@ -19,12 +18,14 @@ namespace StageManager
 		private readonly AppSettings _settings;
 		private readonly bool _desktopIconsVisibleBeforeStart;
 		private readonly HashSet<string> _pinnedApps;
+		private readonly AppGroups _appGroups;
 		private readonly HashSet<IWindow> _hiddenWindows = new HashSet<IWindow>();
 		private readonly object _hiddenWindowsLock = new object();
 		private List<Scene> _scenes;
 		private Scene _current;
 		private bool _suspend = false;
-		private Guid? _reentrancyLockSceneId;
+		private Guid? _priorSceneId;
+		private DateTime _switchedAt;
 		private int _stopped;
 
 		/// <summary>
@@ -45,6 +46,7 @@ namespace StageManager
 			_settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
 			_settings = settingsStore.Load();
 			_pinnedApps = new HashSet<string>(_settings.PinnedApps, StringComparer.OrdinalIgnoreCase);
+			_appGroups = new AppGroups(_settings.AppGroups);
 			_desktop = new Desktop();
 
 			// a value left over from the last session means it did not exit cleanly and the icons are still hidden by it
@@ -210,6 +212,149 @@ namespace StageManager
 				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key)));
 		}
 
+		public Scene? CurrentScene => _current;
+
+		/// <summary>
+		/// Moves all apps of the given scene into the current scene, like dragging an app onto the stage on macOS.
+		/// The apps are remembered as group and stay together from now on.
+		/// </summary>
+		public void AddToCurrentScene(Scene source)
+		{
+			if (source is null || source.Equals(_current) || !_scenes.Contains(source))
+				return;
+
+			// there is no stage to add to in the desktop view
+			if (_current is null)
+			{
+				SwitchTo(source).SafeFireAndForget();
+				return;
+			}
+
+			var target = _current;
+			var windows = source.Windows.ToArray();
+
+			_appGroups.Join(GetAppKeys(source).Concat(GetAppKeys(target)));
+			SaveAppGroups();
+
+			try
+			{
+				_suspend = true;
+
+				foreach (var window in windows)
+				{
+					source.Remove(window);
+					target.Add(window);
+					ShowWindow(window);
+				}
+
+				RemoveScene(source, windows.Last());
+				SceneChanged?.Invoke(this, new SceneChangedEventArgs(target, windows.Last(), ChangeType.Updated));
+
+				windows.First().Focus();
+			}
+			finally
+			{
+				_suspend = false;
+			}
+		}
+
+		/// <summary>
+		/// Moves an app with all its windows from its scene to another one.
+		/// </summary>
+		public void MoveAppToScene(IWindow appWindow, Scene target)
+		{
+			var source = FindSceneForWindow(appWindow);
+			if (source is null || target is null || source.Equals(target) || !_scenes.Contains(target))
+				return;
+
+			var appKey = GetWindowGroupKey(appWindow);
+			var windows = GetAppWindows(source, appKey);
+
+			_appGroups.Detach(appKey);
+			_appGroups.Join(GetAppKeys(target).Append(appKey));
+			SaveAppGroups();
+
+			try
+			{
+				_suspend = true;
+
+				foreach (var window in windows)
+				{
+					source.Remove(window);
+					target.Add(window);
+
+					if (target.Equals(_current))
+						ShowWindow(window);
+					else
+						HideWindow(window);
+				}
+
+				if (source.Windows.Any())
+					SceneChanged?.Invoke(this, new SceneChangedEventArgs(source, appWindow, ChangeType.Updated));
+				else
+					RemoveScene(source, appWindow);
+
+				SceneChanged?.Invoke(this, new SceneChangedEventArgs(target, appWindow, ChangeType.Updated));
+			}
+			finally
+			{
+				_suspend = false;
+			}
+		}
+
+		/// <summary>
+		/// Takes an app out of a scene with several apps, so that it becomes a scene of its own again.
+		/// </summary>
+		public void SeparateApp(Scene scene, string appKey)
+		{
+			if (scene is null || !_scenes.Contains(scene))
+				return;
+
+			var windows = GetAppWindows(scene, appKey);
+			if (windows.Length == 0 || windows.Length == scene.Windows.Count())
+				return;
+
+			_appGroups.Detach(appKey);
+			SaveAppGroups();
+
+			try
+			{
+				_suspend = true;
+
+				foreach (var window in windows)
+				{
+					scene.Remove(window);
+
+					if (scene.Equals(_current))
+						HideWindow(window);
+				}
+
+				var separated = new Scene(windows);
+				_scenes.Add(separated);
+
+				SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, windows.First(), ChangeType.Updated));
+				SceneChanged?.Invoke(this, new SceneChangedEventArgs(separated, windows.First(), ChangeType.Created));
+			}
+			finally
+			{
+				_suspend = false;
+			}
+		}
+
+		public void SeparateApp(IWindow appWindow) => SeparateApp(FindSceneForWindow(appWindow), GetWindowGroupKey(appWindow));
+
+		public bool HasSeveralApps(Scene scene) => GetAppKeys(scene).Skip(1).Any();
+
+		private IEnumerable<string> GetAppKeys(Scene scene) => scene.Windows.Select(GetWindowGroupKey).Distinct(StringComparer.OrdinalIgnoreCase);
+
+		private IWindow[] GetAppWindows(Scene scene, string appKey) => scene.Windows.Where(w => string.Equals(GetWindowGroupKey(w), appKey, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+		private void SaveAppGroups()
+		{
+			_settings.AppGroups = _appGroups.ToList();
+			SaveSettings();
+		}
+
 		private void WindowsManager_UntrackedFocus(object? sender, IntPtr e)
 		{
 			if (_suspend)
@@ -262,10 +407,17 @@ namespace StageManager
 
 		public Scene FindSceneForWindow(IntPtr handle) => _scenes?.FirstOrDefault(s => s.Windows.Any(w => w.Handle == handle));
 
-		private Scene FindSceneForApp(string appKey) => _scenes.FirstOrDefault(s => s.Windows.Any(w => string.Equals(GetWindowGroupKey(w), appKey, StringComparison.OrdinalIgnoreCase)));
+		/// <summary>
+		/// Finds the scene with the given app or with any app that was grouped with it
+		/// </summary>
+		private Scene FindSceneForApp(string appKey)
+		{
+			var group = _appGroups.GroupOf(appKey);
+			return _scenes.FirstOrDefault(s => s.Windows.Any(w => group.Contains(GetWindowGroupKey(w))));
+		}
 
 		/// <summary>
-		/// Adds the window to the scene of its app or creates a new scene for it.
+		/// Adds the window to the scene of its app (or app group) or creates a new scene for it.
 		/// </summary>
 		private Scene AddToScene(IWindow window)
 		{
@@ -276,7 +428,7 @@ namespace StageManager
 
 			if (scene is null)
 			{
-				scene = new Scene(GetWindowGroupKey(window), window);
+				scene = new Scene(window);
 				_scenes.Add(scene);
 				SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Created));
 			}
@@ -315,37 +467,19 @@ namespace StageManager
 			if (scene is null && IsSceneable(window))
 				scene = AddToScene(window);
 
-			if (scene is not null)
+			if (scene is not null && !IsReentrancy(scene))
 				await SwitchTo(scene);
 		}
 
 		/// <summary>
-		/// Determines if a scene is switched back to shortly after it has been hidden.
-		/// This can happen if an app activates one of it's windows after being hidde,
+		/// Determines if a scene gets activated shortly after it has been hidden.
+		/// This can happen if an app activates one of it's windows after being hidden,
 		/// like Microsoft Teams does if there's a small floating window for a current call.
+		/// Only used for switches caused by window activation, the user can always switch back.
 		/// </summary>
-		/// <param name="scene"></param>
-		/// <returns></returns>
-		private bool IsReentrancy(Scene? scene)
+		private bool IsReentrancy(Scene scene)
 		{
-			if (scene is null)
-				return false;
-
-			if (Guid.Equals(scene.Id, _reentrancyLockSceneId))
-				return true;
-
-			if (_current is object)
-			{
-				_reentrancyLockSceneId = _current.Id;
-
-				Task.Run(async () =>
-				{
-					await Task.Delay(1000).ConfigureAwait(false);
-					_reentrancyLockSceneId = null;
-				}).SafeFireAndForget();
-			}
-
-			return false;
+			return Guid.Equals(scene.Id, _priorSceneId) && DateTime.UtcNow - _switchedAt < TimeSpan.FromSeconds(1);
 		}
 
 		public async Task SwitchTo(Scene? scene)
@@ -353,17 +487,21 @@ namespace StageManager
 			if (object.Equals(scene, _current))
 				return;
 
-			if (IsReentrancy(scene))
-				return;
-
 			try
 			{
 				_suspend = true;
+
+				// windows that got their title after they were shown are in no scene yet,
+				// they would be hidden without showing up in the sidebar
+				foreach (var window in GetSceneableWindows().Where(w => FindSceneForWindow(w) is null).ToArray())
+					AddToScene(window);
 
 				var otherWindows = GetSceneableWindows().Except(scene?.Windows ?? Array.Empty<IWindow>()).ToArray();
 
 				var prior = _current;
 				_current = scene;
+				_priorSceneId = prior?.Id;
+				_switchedAt = DateTime.UtcNow;
 
 				foreach (var s in _scenes)
 					s.IsSelected = s.Equals(scene);
@@ -390,68 +528,6 @@ namespace StageManager
 			}
 		}
 
-		public Task MoveWindow(Scene sourceScene, IWindow window, Scene targetScene)
-		{
-			try
-			{
-				_suspend = true;
-
-				if (sourceScene is null || sourceScene.Equals(targetScene))
-					return Task.CompletedTask;
-
-				sourceScene.Remove(window);
-				targetScene.Add(window);
-
-				SceneChanged?.Invoke(this, new SceneChangedEventArgs(sourceScene, window, ChangeType.Updated));
-				SceneChanged?.Invoke(this, new SceneChangedEventArgs(targetScene, window, ChangeType.Updated));
-
-				if (!sourceScene.Windows.Any())
-					RemoveScene(sourceScene, window);
-
-				if (targetScene.Equals(_current))
-				{
-					ShowWindow(window);
-					window.Focus();
-				}
-				else
-				{
-					HideWindow(window);
-
-					// reset window position after move so that the window is back at the starting position on the new scene
-					if (window is WindowsWindow w && w.PopLastLocation() is IWindowLocation l)
-						Win32.SetWindowPos(window.Handle, IntPtr.Zero, l.X, l.Y, 0, 0, Win32.SetWindowPosFlags.IgnoreResize);
-				}
-
-				return Task.CompletedTask;
-			}
-			finally
-			{
-				_suspend = false;
-			}
-		}
-
-		public async Task MoveWindow(IntPtr handle, Scene targetScene)
-		{
-			var source = FindSceneForWindow(handle);
-
-			if (source is null || source.Equals(targetScene))
-				return;
-
-			var window = source.Windows.First(w => w.Handle == handle);
-			await MoveWindow(source, window, targetScene);
-		}
-
-		public async Task PopWindowFrom(Scene sourceScene)
-		{
-			if (sourceScene is null || _current is null || sourceScene.Equals(_current))
-				return;
-
-			var window = sourceScene.Windows.LastOrDefault();
-
-			if (window is object)
-				await MoveWindow(sourceScene, window, _current).ConfigureAwait(false);
-		}
-
 		/// <summary>
 		/// Windows without title are mostly helper windows of apps that should not show up as scenes.
 		/// </summary>
@@ -466,8 +542,8 @@ namespace StageManager
 			if (_scenes is null)
 			{
 				_scenes = GetSceneableWindows()
-							.GroupBy(GetWindowGroupKey)
-							.Select(group => new Scene(group.Key, group.ToArray()))
+							.GroupBy(w => _appGroups.CanonicalKey(GetWindowGroupKey(w)), StringComparer.OrdinalIgnoreCase)
+							.Select(group => new Scene(group.ToArray()))
 							.ToList();
 			}
 

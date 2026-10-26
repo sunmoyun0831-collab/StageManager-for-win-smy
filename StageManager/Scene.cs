@@ -20,11 +20,10 @@ namespace StageManager
 		private List<IWindow> _windows = new List<IWindow>();
 		private bool _selected;
 
-		public Scene(string key, params IWindow[] windows)
+		public Scene(params IWindow[] windows)
 		{
 			_windows.AddRange(windows);
 			UpdateTitle();
-			Key = key;
 		}
 
 		public void Remove(IWindow window)
@@ -66,7 +65,5 @@ namespace StageManager
 		}
 
 		public bool HasFocus => Windows.Any(w => w.IsFocused);
-
-		public string Key { get; }
 	}
 }

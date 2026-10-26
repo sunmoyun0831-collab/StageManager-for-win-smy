@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -21,9 +21,9 @@ namespace StageManager.Settings
 		/// <summary>
 		/// Returns all keys grouped with the given key, including the key itself.
 		/// </summary>
-		public IReadOnlyCollection<string> GroupOf(string key)
+		public IReadOnlySet<string> GroupOf(string key)
 		{
-			return (IReadOnlyCollection<string>?)Find(key) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
+			return (IReadOnlySet<string>?)Find(key) ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase) { key };
 		}
 
 		/// <summary>

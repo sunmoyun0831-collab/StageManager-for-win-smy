@@ -45,10 +45,14 @@ namespace StageManager
 		private Rect _edgeZone;
 		private bool _hasScreenLeftOfSidebar;
 		private SceneModel _removedCurrentScene;
-		private SceneModel _mouseDownScene;
+		private SceneModel? _mouseDownScene;
+		private volatile bool _isPullingScene;
+		private IWindow? _draggedWindow;
+		private Size _draggedWindowSize;
+		private volatile bool _isDraggingWindow;
+		private int _dragFeedbackPending;
 
-		public bool EnableWindowDropToScene = false;
-		public bool EnableWindowPullToScene = true;
+		public static readonly DependencyProperty DropHintProperty = DependencyProperty.Register(nameof(DropHint), typeof(string), typeof(MainWindow));
 
 		public MainWindow()
 		{
@@ -66,7 +70,7 @@ namespace StageManager
 			DpiChanged += (_, _) => Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
 
-			SwitchSceneCommand = new ActionCommand(async model => await SceneManager!.SwitchTo(((SceneModel)model).Scene));
+			SwitchSceneCommand = new ActionCommand(model => OnSceneClicked((SceneModel)model));
 		}
 
 		protected override void OnInitialized(EventArgs e)
@@ -119,6 +123,7 @@ namespace StageManager
 
 			SceneManager.SceneChanged += SceneManager_SceneChanged;
 			SceneManager.CurrentSceneSelectionChanged += SceneManager_CurrentSceneSelectionChanged;
+			SceneManager.WindowsManager.WindowUpdated += WindowsManager_WindowUpdated;
 
 			AddInitialScenes();
 
@@ -223,27 +228,29 @@ namespace StageManager
 			});
 		}
 
+		private void OnSceneClicked(SceneModel model)
+		{
+			if (SceneManager is null)
+				return;
+
+			// shift click adds the apps of the scene to the current one, like on macOS
+			if ((Win32.GetAsyncKeyState(Win32.VK_SHIFT) & 0x8000) != 0)
+				SceneManager.AddToCurrentScene(model.Scene);
+			else
+				SceneManager.SwitchTo(model.Scene).SafeFireAndForget();
+		}
+
 		private void OnMousePressed(object? sender, MouseHookEventArgs e)
 		{
 			if (e.Data.Button != SharpHook.Native.MouseButton.Button1)
 				return;
 
-			// if it's allowed to drag windows into scenes, we cannot hide the scenes
-			if (EnableWindowDropToScene)
-				Dispatcher.Invoke(_overlapCheckTimer.Stop);
-
-			var foregroundWindow = Win32.GetForegroundWindow();
-			if (foregroundWindow != _thisHandle)
-				return;
-
-			if (EnableWindowPullToScene)
+			var screenPoint = new Point(e.Data.X, e.Data.Y);
+			Dispatcher.BeginInvoke(() =>
 			{
-				var screenPoint = new Point(e.Data.X, e.Data.Y);
-				this.Dispatcher.Invoke(() =>
-				{
-					_mouseDownScene = FindSceneByPoint(screenPoint);
-				});
-			}
+				_mouseDownScene = IsSidebarAt(screenPoint) ? FindSceneByPoint(screenPoint) : null;
+				_isPullingScene = _mouseDownScene is not null;
+			});
 		}
 
 		private void OnMouseReleased(object? sender, MouseHookEventArgs e)
@@ -251,36 +258,129 @@ namespace StageManager
 			if (e.Data.Button != SharpHook.Native.MouseButton.Button1)
 				return;
 
-			// if it's allowed to drag windows into scenes, we cannot hide the scenes
-			if (EnableWindowDropToScene)
+			var screenPoint = new Point(e.Data.X, e.Data.Y);
+			Dispatcher.BeginInvoke(() =>
 			{
-				Dispatcher.Invoke(_overlapCheckTimer.Start);
+				var pulledScene = _mouseDownScene;
+				_mouseDownScene = null;
+				_isPullingScene = false;
 
-				var foregroundWindow = Win32.GetForegroundWindow();
-
-				if (foregroundWindow == _thisHandle)
+				if (pulledScene is null)
 					return;
 
-				var screenPoint = new Point(e.Data.X, e.Data.Y);
-				this.Dispatcher.Invoke(() =>
-				{
-					var sceneModel = FindSceneByPoint(screenPoint);
+				SetDropFeedback(null, null);
 
-					if (sceneModel is object)
-						SceneManager.MoveWindow(foregroundWindow, sceneModel.Scene).SafeFireAndForget();
-				});
-			}
+				// dragging a scene out of the sidebar onto the stage adds its apps to the current scene
+				if (screenPoint.X >= _sidebarZone.Right)
+					SceneManager?.AddToCurrentScene(pulledScene.Scene);
+			});
+		}
 
-			if (EnableWindowPullToScene)
+		private void WindowsManager_WindowUpdated(IWindow window, WindowUpdateType type)
+		{
+			if (type == WindowUpdateType.MoveStart)
+				OnWindowDragStarted(window);
+			else if (type == WindowUpdateType.MoveEnd)
+				OnWindowDragEnded(window);
+		}
+
+		private void OnWindowDragStarted(IWindow window)
+		{
+			// only windows on the stage can be dragged into the sidebar, pinned windows are on no stage
+			if (SceneManager?.CurrentScene is not Scene current || !current.Windows.Contains(window))
+				return;
+
+			var location = window.Location;
+			_draggedWindow = window;
+			_draggedWindowSize = new Size(location.Width, location.Height);
+			_isDraggingWindow = true;
+		}
+
+		/// <summary>
+		/// A window of the current scene dropped on another scene moves its app over there,
+		/// dropped anywhere else on the sidebar it takes its app out of the current scene.
+		/// </summary>
+		private void OnWindowDragEnded(IWindow window)
+		{
+			if (_draggedWindow != window)
+				return;
+
+			_draggedWindow = null;
+			_isDraggingWindow = false;
+			SetDropFeedback(null, null);
+
+			// resizing (and snapping to a screen edge) also starts a move, only plain moves can drop windows
+			var location = window.Location;
+			if (location.Width != _draggedWindowSize.Width || location.Height != _draggedWindowSize.Height)
+				return;
+
+			if (SceneManager is null || !IsVisible || !Win32.GetCursorPos(out var cursor))
+				return;
+
+			var point = new Point(cursor.X, cursor.Y);
+			if (!_sidebarZone.Contains(point) || SceneManager.FindSceneForWindow(window) is not Scene scene)
+				return;
+
+			var target = FindSceneByPoint(point);
+			if (target is null && !SceneManager.HasSeveralApps(scene))
+				return;
+
+			// put the window back to where the drag started, so that it is there again when its scene is shown
+			if (window is WindowsWindow w && w.PopLastLocation() is IWindowLocation l)
+				Win32.SetWindowPos(window.Handle, IntPtr.Zero, l.X, l.Y, 0, 0, Win32.SetWindowPosFlags.IgnoreResize | Win32.SetWindowPosFlags.IgnoreZOrder | Win32.SetWindowPosFlags.DoNotActivate);
+
+			if (target is not null)
+				SceneManager.MoveAppToScene(window, target.Scene);
+			else
+				SceneManager.SeparateApp(window);
+		}
+
+		private void UpdateDragFeedback()
+		{
+			_dragFeedbackPending = 0;
+
+			if (SceneManager is null)
+				return;
+
+			var point = _mouse;
+			SceneModel? target = null;
+			string? hint = null;
+
+			if (_draggedWindow is IWindow window)
 			{
-				if (e.Data.X >= _sidebarZone.Right && _mouseDownScene is object)
+				if (IsVisible && _sidebarZone.Contains(point))
 				{
-					this.Dispatcher.Invoke(() =>
-					{
-						SceneManager.PopWindowFrom(_mouseDownScene.Scene).SafeFireAndForget();
-					});
+					target = FindSceneByPoint(point);
+
+					if (target is not null)
+						hint = $"Move {window.AppName} to this stage";
+					else if (SceneManager.CurrentScene is Scene current && SceneManager.HasSeveralApps(current))
+						hint = $"Drop to take {window.AppName} out of this stage";
 				}
 			}
+			else if (_mouseDownScene is SceneModel pulled)
+			{
+				target = pulled;
+
+				if (point.X >= _sidebarZone.Right)
+					hint = SceneManager.CurrentScene is null ? "Release to show this stage" : "Release to add this to the current stage";
+			}
+
+			SetDropFeedback(target, hint);
+		}
+
+		private void SetDropFeedback(SceneModel? target, string? hint)
+		{
+			foreach (var scene in Scenes)
+				scene.IsDropTarget = scene.Equals(target);
+
+			DropHint = hint;
+		}
+
+		private bool IsSidebarAt(Point screenPoint)
+		{
+			var handle = Win32.WindowFromPoint(new System.Drawing.Point((int)screenPoint.X, (int)screenPoint.Y));
+			return handle != IntPtr.Zero && Win32.GetAncestor(handle, Win32.GA.GA_ROOT) == _thisHandle;
 		}
 
 		/// <param name="p">A point in physical screen coordinates</param>
@@ -317,9 +417,21 @@ namespace StageManager
 
 		public ObservableCollection<SceneModel> Scenes { get; } = new ObservableCollection<SceneModel>();
 
-		public IEnumerable<SceneModel> AllScenes => Scenes.Union(new[] { _removedCurrentScene });
+		/// <summary>
+		/// The scenes in the sidebar plus the current one, which is not shown in the sidebar
+		/// </summary>
+		public IEnumerable<SceneModel> AllScenes => _removedCurrentScene is null ? Scenes : Scenes.Append(_removedCurrentScene);
 
 		public ICommand SwitchSceneCommand { get; }
+
+		/// <summary>
+		/// Explains what happens when the thing dragged right now is dropped, null hides the hint
+		/// </summary>
+		public string? DropHint
+		{
+			get => (string?)GetValue(DropHintProperty);
+			set => SetValue(DropHintProperty, value);
+		}
 
 		public SceneManager SceneManager { get; private set; }
 
@@ -418,6 +530,9 @@ namespace StageManager
 		private void _hook_MouseMoved(object? sender, MouseHookEventArgs e)
 		{
 			_mouse = new Point(e.Data.X, e.Data.Y);
+
+			if ((_isDraggingWindow || _isPullingScene) && Interlocked.Exchange(ref _dragFeedbackPending, 1) == 0)
+				Dispatcher.BeginInvoke(UpdateDragFeedback);
 
 			var atEdge = _edgeZone.Contains(_mouse);
 			if (atEdge == _mouseAtEdge)
@@ -553,11 +668,33 @@ namespace StageManager
 
 			menu.Items.Clear();
 
-			foreach (var app in SceneManager.GetApps(model.Scene))
+			var apps = SceneManager.GetApps(model.Scene).ToArray();
+
+			if (SceneManager.CurrentScene is not null)
 			{
-				var item = new MenuItem { Header = $"Pin {app.Name} (always visible)" };
-				item.Click += (_, _) => SceneManager.SetPinned(app.Key, true);
-				menu.Items.Add(item);
+				var add = new MenuItem { Header = "Add to current stage (Shift+Click)" };
+				add.Click += (_, _) => SceneManager.AddToCurrentScene(model.Scene);
+				menu.Items.Add(add);
+			}
+
+			if (apps.Length > 1)
+			{
+				foreach (var app in apps)
+				{
+					var separate = new MenuItem { Header = $"Take {app.Name} out of this stage" };
+					separate.Click += (_, _) => SceneManager.SeparateApp(model.Scene, app.Key);
+					menu.Items.Add(separate);
+				}
+			}
+
+			if (menu.Items.Count > 0)
+				menu.Items.Add(new Separator());
+
+			foreach (var app in apps)
+			{
+				var pin = new MenuItem { Header = $"Pin {app.Name} (always visible)" };
+				pin.Click += (_, _) => SceneManager.SetPinned(app.Key, true);
+				menu.Items.Add(pin);
 			}
 		}
 	}

@@ -10,6 +10,7 @@ namespace StageManager.Model
 	{
 		public event PropertyChangedEventHandler PropertyChanged;
 		private bool _isVisible;
+		private bool _isDropTarget;
 		private Scene _scene;
 
 		public static SceneModel FromScene(Scene scene)
@@ -110,6 +111,22 @@ namespace StageManager.Model
 		}
 
 		public DateTime Updated { get; private set; }
+
+		/// <summary>
+		/// Set while something is dragged over the scene that would end up in it when dropped
+		/// </summary>
+		public bool IsDropTarget
+		{
+			get => _isDropTarget;
+			set
+			{
+				if (_isDropTarget != value)
+				{
+					_isDropTarget = value;
+					RaisePropertyChanged();
+				}
+			}
+		}
 
 		private void RaisePropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string memberName = "")
 		{
