@@ -1,4 +1,5 @@
-﻿using StageManager.Settings;
+﻿using AsyncAwaitBestPractices;
+using StageManager.Settings;
 using System;
 using System.IO;
 using System.Threading;
@@ -41,6 +42,7 @@ namespace StageManager
 			DispatcherUnhandledException += App_DispatcherUnhandledException;
 			AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
 			TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+			SafeFireAndForgetExtensions.SetDefaultExceptionHandling(Log);
 
 			new MainWindow().Show();
 		}

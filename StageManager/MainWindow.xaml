@@ -55,7 +55,14 @@
                 <DataTemplate>
                     <StackPanel Orientation="Vertical"
                         Visibility="{Binding Visibility}"
-                        Style="{StaticResource SceneOpacity}">
+                        Style="{StaticResource SceneOpacity}"
+                        ContextMenuOpening="Scene_ContextMenuOpening">
+                        <StackPanel.ContextMenu>
+                            <!-- filled when opening -->
+                            <ContextMenu
+                                Opened="SceneContextMenu_Opened"
+                                Closed="ContextMenu_Closed" />
+                        </StackPanel.ContextMenu>
                         <i:Interaction.Triggers>
                             <i:EventTrigger
                                 EventName="MouseLeftButtonUp">
@@ -124,6 +131,10 @@
                 <ContextMenu
                     Opened="ContextMenu_Opened"
                     Closed="ContextMenu_Closed">
+                    <MenuItem
+                        x:Name="pinnedAppsMenu"
+                        Header="Pinned apps (always visible)" />
+                    <Separator />
                     <MenuItem
                         Header="Start with Windows"
                         IsCheckable="True"

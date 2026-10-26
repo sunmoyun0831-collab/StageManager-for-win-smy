@@ -15,6 +15,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
@@ -177,6 +178,9 @@ namespace StageManager
 
 		private void OnMousePressed(object? sender, MouseHookEventArgs e)
 		{
+			if (e.Data.Button != SharpHook.Native.MouseButton.Button1)
+				return;
+
 			// if it's allowed to drag windows into scenes, we cannot hide the scenes
 			if (EnableWindowDropToScene)
 				Dispatcher.Invoke(_overlapCheckTimer.Stop);
@@ -197,6 +201,9 @@ namespace StageManager
 
 		private void OnMouseReleased(object? sender, MouseHookEventArgs e)
 		{
+			if (e.Data.Button != SharpHook.Native.MouseButton.Button1)
+				return;
+
 			// if it's allowed to drag windows into scenes, we cannot hide the scenes
 			if (EnableWindowDropToScene)
 			{
@@ -400,6 +407,48 @@ namespace StageManager
 		private void ContextMenu_Opened(object sender, RoutedEventArgs e)
 		{
 			StopHook();
+			FillPinnedAppsMenu();
+		}
+
+		private void SceneContextMenu_Opened(object sender, RoutedEventArgs e)
+		{
+			StopHook();
+		}
+
+		private void FillPinnedAppsMenu()
+		{
+			pinnedAppsMenu.Items.Clear();
+
+			if (SceneManager is null)
+				return;
+
+			pinnedAppsMenu.Items.Add(new MenuItem { Header = "Pinned apps are never hidden and don't switch scenes", IsEnabled = false });
+			pinnedAppsMenu.Items.Add(new Separator());
+
+			foreach (var app in SceneManager.GetApps())
+			{
+				var item = new MenuItem { Header = app.Name, ToolTip = app.Key, IsCheckable = true, IsChecked = app.IsPinned };
+				item.Click += (_, _) => SceneManager.SetPinned(app.Key, item.IsChecked);
+				pinnedAppsMenu.Items.Add(item);
+			}
+		}
+
+		private void Scene_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+		{
+			if (SceneManager is null || sender is not FrameworkElement { DataContext: SceneModel model, ContextMenu: ContextMenu menu })
+			{
+				e.Handled = true;
+				return;
+			}
+
+			menu.Items.Clear();
+
+			foreach (var app in SceneManager.GetApps(model.Scene))
+			{
+				var item = new MenuItem { Header = $"Pin {app.Name} (always visible)" };
+				item.Click += (_, _) => SceneManager.SetPinned(app.Key, true);
+				menu.Items.Add(item);
+			}
 		}
 	}
 

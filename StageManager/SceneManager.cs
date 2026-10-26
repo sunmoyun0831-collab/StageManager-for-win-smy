@@ -18,6 +18,7 @@ namespace StageManager
 		private readonly SettingsStore _settingsStore;
 		private readonly AppSettings _settings;
 		private readonly bool _desktopIconsVisibleBeforeStart;
+		private readonly HashSet<string> _pinnedApps;
 		private readonly HashSet<IWindow> _hiddenWindows = new HashSet<IWindow>();
 		private readonly object _hiddenWindowsLock = new object();
 		private List<Scene> _scenes;
@@ -25,6 +26,11 @@ namespace StageManager
 		private bool _suspend = false;
 		private Guid? _reentrancyLockSceneId;
 		private int _stopped;
+
+		/// <summary>
+		/// Windows usually get activated right after they were shown, this is how long we wait for that to happen.
+		/// </summary>
+		private const int NEW_WINDOW_ACTIVATION_DELAY_MILLISECONDS = 500;
 
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
@@ -38,6 +44,7 @@ namespace StageManager
 			WindowsManager = windowsManager ?? throw new ArgumentNullException(nameof(windowsManager));
 			_settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
 			_settings = settingsStore.Load();
+			_pinnedApps = new HashSet<string>(_settings.PinnedApps, StringComparer.OrdinalIgnoreCase);
 			_desktop = new Desktop();
 
 			// a value left over from the last session means it did not exit cleanly and the icons are still hidden by it
@@ -59,6 +66,8 @@ namespace StageManager
 			WindowsManager.UntrackedFocus += WindowsManager_UntrackedFocus;
 
 			await WindowsManager.Start();
+
+			GetScenes();
 		}
 
 		/// <summary>
@@ -136,6 +145,71 @@ namespace StageManager
 				SwitchToSceneByWindow(window).SafeFireAndForget();
 		}
 
+		public bool IsPinned(IWindow window) => IsPinned(GetWindowGroupKey(window));
+
+		public bool IsPinned(string appKey) => _pinnedApps.Contains(appKey);
+
+		/// <summary>
+		/// Pinned apps are not part of any scene. Their windows stay visible all the time and focusing them does not switch scenes.
+		/// </summary>
+		public void SetPinned(string appKey, bool pinned)
+		{
+			var changed = pinned ? _pinnedApps.Add(appKey) : _pinnedApps.Remove(appKey);
+			if (!changed)
+				return;
+
+			_settings.PinnedApps = _pinnedApps.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+			SaveSettings();
+
+			var appWindows = WindowsManager.Windows.Where(w => string.Equals(GetWindowGroupKey(w), appKey, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+			if (pinned)
+			{
+				foreach (var window in appWindows)
+				{
+					if (FindSceneForWindow(window) is Scene scene)
+						RemoveFromScene(scene, window);
+
+					ShowWindow(window);
+				}
+			}
+			else
+			{
+				// the app is part of the scenes again, show its scene so that none of its windows suddenly disappears
+				Scene? appScene = null;
+				foreach (var window in appWindows.Where(IsSceneable))
+					appScene = AddToScene(window);
+
+				if (appScene is not null)
+					SwitchTo(appScene).SafeFireAndForget();
+			}
+		}
+
+		/// <summary>
+		/// Lists the apps with visible windows plus the pinned ones that are not running.
+		/// </summary>
+		public IEnumerable<AppInfo> GetApps()
+		{
+			var runningApps = WindowsManager.Windows
+				.Where(HasWindowContent)
+				.GroupBy(GetWindowGroupKey, StringComparer.OrdinalIgnoreCase)
+				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key)))
+				.ToList();
+
+			var pinnedAppsNotRunning = _pinnedApps
+				.Where(key => !runningApps.Any(app => string.Equals(app.Key, key, StringComparison.OrdinalIgnoreCase)))
+				.Select(key => new AppInfo(key, key, true));
+
+			return runningApps.Concat(pinnedAppsNotRunning).OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase);
+		}
+
+		public IEnumerable<AppInfo> GetApps(Scene scene)
+		{
+			return scene.Windows
+				.GroupBy(GetWindowGroupKey, StringComparer.OrdinalIgnoreCase)
+				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key)));
+		}
+
 		private void WindowsManager_UntrackedFocus(object? sender, IntPtr e)
 		{
 			if (_suspend)
@@ -156,18 +230,17 @@ namespace StageManager
 			var scene = FindSceneForWindow(window);
 
 			if (scene is not null)
-			{
-				scene.Remove(window);
+				RemoveFromScene(scene, window);
+		}
 
-				if (scene.Windows.Any())
-				{
-					SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Updated));
-				}
-				else
-				{
-					RemoveScene(scene, window);
-				}
-			}
+		private void RemoveFromScene(Scene scene, IWindow window)
+		{
+			scene.Remove(window);
+
+			if (scene.Windows.Any())
+				SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Updated));
+			else
+				RemoveScene(scene, window);
 		}
 
 		private void RemoveScene(Scene scene, IWindow window)
@@ -189,33 +262,21 @@ namespace StageManager
 
 		public Scene FindSceneForWindow(IntPtr handle) => _scenes?.FirstOrDefault(s => s.Windows.Any(w => w.Handle == handle));
 
-		private Scene FindSceneForProcess(string processName) => _scenes.FirstOrDefault(s => string.Equals(s.Key, processName, StringComparison.OrdinalIgnoreCase));
+		private Scene FindSceneForApp(string appKey) => _scenes.FirstOrDefault(s => s.Windows.Any(w => string.Equals(GetWindowGroupKey(w), appKey, StringComparison.OrdinalIgnoreCase)));
 
-		private async void WindowsManager_WindowCreated(IWindow window, bool firstCreate)
+		/// <summary>
+		/// Adds the window to the scene of its app or creates a new scene for it.
+		/// </summary>
+		private Scene AddToScene(IWindow window)
 		{
-			SwitchToSceneByNewWindow(window).SafeFireAndForget();
-		}
+			if (FindSceneForWindow(window) is Scene existing)
+				return existing;
 
-		private async Task SwitchToSceneByWindow(IWindow window)
-		{
-			var scene = FindSceneForWindow(window);
+			var scene = FindSceneForApp(GetWindowGroupKey(window));
+
 			if (scene is null)
 			{
 				scene = new Scene(GetWindowGroupKey(window), window);
-				_scenes.Add(scene);
-				SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Created));
-			}
-
-			await SwitchTo(scene);
-		}
-
-		private async Task SwitchToSceneByNewWindow(IWindow window)
-		{
-			var existentScene = FindSceneForProcess(GetWindowGroupKey(window));
-			var scene = existentScene ?? new Scene(window.ProcessName, window);
-
-			if (existentScene is null)
-			{
 				_scenes.Add(scene);
 				SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Created));
 			}
@@ -225,7 +286,37 @@ namespace StageManager
 				SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Updated));
 			}
 
-			await SwitchTo(scene).ConfigureAwait(true);
+			return scene;
+		}
+
+		private async void WindowsManager_WindowCreated(IWindow window, bool firstCreate)
+		{
+			if (!IsSceneable(window))
+				return;
+
+			AddToScene(window);
+
+			// A new window usually gets activated right after it was shown, which switches to its scene.
+			// Windows that open in the background must not pull the user out of the current scene, so they are hidden instead.
+			await Task.Delay(NEW_WINDOW_ACTIVATION_DELAY_MILLISECONDS).ConfigureAwait(true);
+
+			if (_stopped == 0 && FindSceneForWindow(window) is Scene scene && !scene.Equals(_current) && !window.IsFocused)
+				HideWindow(window);
+		}
+
+		private async Task SwitchToSceneByWindow(IWindow window)
+		{
+			// pinned apps stay visible next to every scene, focusing them must not switch away
+			if (IsPinned(window))
+				return;
+
+			var scene = FindSceneForWindow(window);
+
+			if (scene is null && IsSceneable(window))
+				scene = AddToScene(window);
+
+			if (scene is not null)
+				await SwitchTo(scene);
 		}
 
 		/// <summary>
@@ -361,7 +452,14 @@ namespace StageManager
 				await MoveWindow(sourceScene, window, _current).ConfigureAwait(false);
 		}
 
-		private IEnumerable<IWindow> GetSceneableWindows() => WindowsManager?.Windows?.Where(w => !string.IsNullOrEmpty(w.ProcessFileName) && !string.IsNullOrEmpty(w.Title));
+		/// <summary>
+		/// Windows without title are mostly helper windows of apps that should not show up as scenes.
+		/// </summary>
+		private static bool HasWindowContent(IWindow window) => !string.IsNullOrEmpty(window.ProcessFileName) && !string.IsNullOrEmpty(window.Title);
+
+		private bool IsSceneable(IWindow window) => HasWindowContent(window) && !IsPinned(window);
+
+		private IEnumerable<IWindow> GetSceneableWindows() => WindowsManager?.Windows?.Where(IsSceneable);
 
 		public IEnumerable<Scene> GetScenes()
 		{
