@@ -19,6 +19,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Media3D;
 using System.Windows.Threading;
 
 namespace StageManager
@@ -33,6 +34,12 @@ namespace StageManager
 		private const string APP_NAME = "StageManager";
 		private const int EDGE_TRIGGER_WIDTH = 44;
 		private const int EDGE_DWELL_MILLISECONDS = 300;
+
+		/// <summary>
+		/// How far the eye looking at the tilted sidebar cards is away from the screen, relative to the screen width.
+		/// Smaller values give a stronger perspective.
+		/// </summary>
+		private const double EYE_DISTANCE_FACTOR = 0.5;
 		private const int DRAG_HOVER_MILLISECONDS = 600;
 		private const int QUIT_TIMEOUT_MILLISECONDS = 3000;
 		private IntPtr _thisHandle;
@@ -245,6 +252,14 @@ namespace StageManager
 
 			Top = workArea.Top / dpi.DpiScaleY;
 			Height = workArea.Height / dpi.DpiScaleY;
+
+			// all cards are seen from one eye in front of the center of the screen, relative to the sidebar on screen
+			var bounds = screen.Bounds;
+			var eye = new Point3D(
+				(bounds.Left + bounds.Width / 2.0 - workArea.Left) / dpi.DpiScaleX,
+				(bounds.Top + bounds.Height / 2.0 - workArea.Top) / dpi.DpiScaleY,
+				bounds.Width / dpi.DpiScaleX * EYE_DISTANCE_FACTOR);
+			TiltedImage.SetEye(this, eye);
 
 			if (Mode != WindowMode.OffScreen)
 			{

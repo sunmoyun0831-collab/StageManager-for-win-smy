@@ -222,25 +222,28 @@
                                         <DataTemplate>
                                             <Grid
                                                 Width="200"
-                                                Height="130"
-                                                RenderTransformOrigin="0.5,0.5">
-                                                <Grid.RenderTransform>
-                                                    <TransformGroup>
-                                                        <ScaleTransform
-                                                            ScaleX="{Binding StackScale}"
-                                                            ScaleY="{Binding StackScale}" />
-                                                        <TranslateTransform
-                                                            X="{Binding StackOffsetX}"
-                                                            Y="{Binding StackOffsetY}" />
-                                                    </TransformGroup>
-                                                </Grid.RenderTransform>
+                                                Height="130">
+                                                <!-- flat thumbnails can't go back in depth, they are stacked by shrinking and moving them -->
                                                 <local:DwmThumbnail
                                                     PreviewHandle="{Binding Handle}"
                                                     Style="{StaticResource VisibleWithoutSnapshot}"
                                                     Width="170"
-                                                    Height="105" />
+                                                    Height="105"
+                                                    RenderTransformOrigin="0.5,0.5">
+                                                    <local:DwmThumbnail.RenderTransform>
+                                                        <TransformGroup>
+                                                            <ScaleTransform
+                                                                ScaleX="{Binding StackScale}"
+                                                                ScaleY="{Binding StackScale}" />
+                                                            <TranslateTransform
+                                                                X="{Binding StackOffsetX}"
+                                                                Y="{Binding StackOffsetY}" />
+                                                        </TransformGroup>
+                                                    </local:DwmThumbnail.RenderTransform>
+                                                </local:DwmThumbnail>
                                                 <local:TiltedImage
                                                     Source="{Binding Snapshot}"
+                                                    StackIndex="{Binding StackIndex}"
                                                     Style="{StaticResource TiltedCard}"
                                                     Visibility="{Binding HasSnapshot, Converter={StaticResource BooleanToVisibility}}">
                                                     <local:TiltedImage.Effect>
