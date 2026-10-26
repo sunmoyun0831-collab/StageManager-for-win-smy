@@ -44,11 +44,6 @@ namespace StageManager
 		private const int QUIT_TIMEOUT_MILLISECONDS = 3000;
 
 		/// <summary>
-		/// The windows behind the backdrop keep running, their pictures in the sidebar are taken again this often
-		/// </summary>
-		private const int SNAPSHOT_REFRESH_SECONDS = 2;
-
-		/// <summary>
 		/// Slideshows replace the wallpaper without telling anyone
 		/// </summary>
 		private const int WALLPAPER_REFRESH_SECONDS = 60;
@@ -72,7 +67,6 @@ namespace StageManager
 		private int _dragFeedbackPending;
 		private bool _isQuitting;
 		private BackdropWindow? _backdrop;
-		private DispatcherTimer _snapshotTimer;
 		private DispatcherTimer _wallpaperTimer;
 		private volatile string _quitStep = "";
 		private DispatcherTimer _dragHoverTimer;
@@ -95,9 +89,6 @@ namespace StageManager
 
 			_dragHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DRAG_HOVER_MILLISECONDS) };
 			_dragHoverTimer.Tick += DragHoverTimer_Tick;
-
-			_snapshotTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(SNAPSHOT_REFRESH_SECONDS) };
-			_snapshotTimer.Tick += (_, _) => RefreshSnapshots();
 
 			_wallpaperTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(WALLPAPER_REFRESH_SECONDS) };
 			_wallpaperTimer.Tick += (_, _) => _backdrop?.ReloadWallpaper();
@@ -149,7 +140,6 @@ namespace StageManager
 			RunQuitStep("removing the tray icon", trayIcon.Dispose);
 
 			_overlapCheckTimer.Stop();
-			_snapshotTimer.Stop();
 			_wallpaperTimer.Stop();
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
 			Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
@@ -230,25 +220,7 @@ namespace StageManager
 			WindowSnapshots.CaptureInBackground(SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray());
 
 			_overlapCheckTimer.Start();
-			_snapshotTimer.Start();
 			_wallpaperTimer.Start();
-		}
-
-		/// <summary>
-		/// Keeps the pictures of the front windows in the sidebar up to date while the sidebar is shown
-		/// </summary>
-		private void RefreshSnapshots()
-		{
-			if (!IsVisible || SceneManager is null)
-				return;
-
-			var windows = Scenes
-				.Where(s => s.IsVisible)
-				.SelectMany(s => s.Windows.Where(w => w.StackIndex == 0))
-				.Select(w => w.Window)
-				.ToArray();
-
-			WindowSnapshots.CaptureInBackground(windows);
 		}
 
 		private void Backdrop_Clicked(object? sender, EventArgs e)
