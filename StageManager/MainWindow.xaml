@@ -313,6 +313,11 @@
                             IsCheckable="True"
                             IsChecked="{Binding StartsWithWindows}" />
                         <MenuItem
+                            x:Name="debugLogMenuItem"
+                            Header="Debug log (for bug reports)"
+                            IsCheckable="True"
+                            Click="MenuItem_DebugLog_Click" />
+                        <MenuItem
                             Header="Project page"
                             Click="MenuItem_ProjectPage_Click" />
                         <Separator />

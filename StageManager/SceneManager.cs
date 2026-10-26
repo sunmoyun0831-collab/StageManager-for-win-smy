@@ -123,6 +123,8 @@ namespace StageManager
 		/// </summary>
 		private void MoveOffStage(IReadOnlyCollection<IWindow> windows)
 		{
+			DebugLog.Write($"Off stage: {string.Join(", ", windows.Select(DebugLog.Describe))}");
+
 			if (!_backdrop.IsVisible)
 			{
 				HideWindows(windows);
@@ -149,7 +151,9 @@ namespace StageManager
 				if (!_backdrop.IsVisible)
 					_backdrop.Show();
 
-				_backdrop.Arrange(scene.Windows.Concat(GetPinnedWindows()).Select(w => w.Handle));
+				var front = scene.Windows.Concat(GetPinnedWindows()).Select(w => w.Handle).ToArray();
+				DebugLog.Write($"On stage: {DebugLog.Describe(front)}");
+				_backdrop.Arrange(front);
 			}
 			catch (Exception ex)
 			{
@@ -202,6 +206,9 @@ namespace StageManager
 
 		private void WindowsManager_WindowUpdated(IWindow window, WindowUpdateType type)
 		{
+			if (type == WindowUpdateType.Foreground)
+				DebugLog.Write($"Foreground: {DebugLog.Describe(window)}{(_suspend ? ", ignored while switching" : "")}");
+
 			if (_suspend)
 				return;
 
@@ -420,6 +427,8 @@ namespace StageManager
 
 		private void WindowsManager_UntrackedFocus(object? sender, IntPtr e)
 		{
+			DebugLog.Write($"Foreground (not tracked): 0x{e.ToInt64():X} {Win32Helper.GetClassName(e)}{(_suspend ? ", ignored while switching" : "")}");
+
 			if (_suspend)
 				return;
 
@@ -446,7 +455,10 @@ namespace StageManager
 		{
 			await Task.Delay(WINDOWS_REACTION_DELAY_MILLISECONDS).ConfigureAwait(true);
 
-			if (_current is not null && _current.Windows.All(w => w.IsMinimized))
+			var minimized = _current is not null && _current.Windows.All(w => w.IsMinimized);
+			DebugLog.Write($"Desktop focused, windows of the scene minimized: {minimized}");
+
+			if (minimized)
 				await SwitchTo(null);
 		}
 
@@ -547,6 +559,8 @@ namespace StageManager
 
 		private async void WindowsManager_WindowCreated(IWindow window, bool firstCreate)
 		{
+			DebugLog.Write($"Created: {DebugLog.Describe(window)}{(IsSceneable(window) ? "" : ", ignored")}");
+
 			if (!IsSceneable(window))
 				return;
 
@@ -565,15 +579,29 @@ namespace StageManager
 		{
 			// pinned apps stay visible next to every scene, focusing them must not switch away
 			if (IsPinned(window))
+			{
+				DebugLog.Write("  pinned, no switch");
 				return;
+			}
 
 			var scene = FindSceneForWindow(window);
 
 			if (scene is null && IsSceneable(window))
 				scene = AddToScene(window);
 
-			if (scene is not null && !IsReentrancy(scene))
-				await SwitchTo(scene);
+			if (scene is null)
+			{
+				DebugLog.Write("  in no scene, no switch");
+				return;
+			}
+
+			if (IsReentrancy(scene))
+			{
+				DebugLog.Write($"  left this scene {(DateTime.UtcNow - _switchedAt).TotalMilliseconds:F0} ms ago, no switch back");
+				return;
+			}
+
+			await SwitchTo(scene);
 		}
 
 		/// <summary>
@@ -591,6 +619,8 @@ namespace StageManager
 		{
 			if (object.Equals(scene, _current))
 				return;
+
+			DebugLog.Write($"Switch from {DebugLog.Describe(_current)} to {DebugLog.Describe(scene)}");
 
 			try
 			{

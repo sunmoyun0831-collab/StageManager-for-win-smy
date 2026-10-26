@@ -245,6 +245,7 @@ namespace StageManager
 				return;
 
 			ZOrder.Raise(behind);
+			DebugLog.Write($"Still behind the backdrop, raised again: {DebugLog.Describe(behind)}");
 
 			if (_reportedArrangeProblems++ < 3)
 				App.Log(new InvalidOperationException($"{behind.Count} of {front.Length} windows of the scene were still behind the backdrop: {string.Join(", ", behind.Select(h => h.ToString("X")))}"));

@@ -840,6 +840,16 @@ namespace StageManager
 			StopHook();
 			FillPinnedAppsMenu();
 			wallpaperClickMenuItem.IsChecked = SceneManager?.ClickWallpaperShowsDesktop ?? true;
+			debugLogMenuItem.IsChecked = DebugLog.Enabled;
+		}
+
+		private void MenuItem_DebugLog_Click(object sender, RoutedEventArgs e)
+		{
+			DebugLog.Enabled = debugLogMenuItem.IsChecked;
+
+			// show the file when the log is stopped, that's when it gets sent
+			if (!DebugLog.Enabled && System.IO.File.Exists(DebugLog.Path))
+				Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{DebugLog.Path}\"") { UseShellExecute = true });
 		}
 
 		private void MenuItem_WallpaperClick_Click(object sender, RoutedEventArgs e)

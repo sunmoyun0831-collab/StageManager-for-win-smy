@@ -62,6 +62,13 @@ namespace StageManager.Native.PInvoke
             */
         }
 
+        public static string GetClassName(IntPtr hWnd)
+        {
+            var buffer = new System.Text.StringBuilder(256);
+            Win32.GetClassName(hWnd, buffer, buffer.Capacity);
+            return buffer.ToString();
+        }
+
         public static void ForceForegroundWindow(IntPtr hWnd)
         {
             FocusStealer.Steal(hWnd);
