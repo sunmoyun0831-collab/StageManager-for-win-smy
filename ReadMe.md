@@ -8,16 +8,25 @@ This is an experimental approach to bring the macOS [Stage Manager](https://supp
 
 This prototype groups applications by their process. By switching between so called "scenes" on the left, Stage Manager hides other windows and the desktop icons, helping you to focus.
 
-Windows can be moved from one scene to another by dragging them onto scenes on the left.
-
 ## Usage
 
-Download and run the executable from the [Releases tab](https://github.com/awaescher/StageManager/releases/) or 
+Download the latest `StageManager-<number>` artifact of a successful run from the Actions tab and run the executable in it, or 
  - clone this repository
  - cd into the repository directory
  - run `dotnet run --project StageManager`
 
 To quit, find the app's tray icon (Windows might move it into the overflow menu) and use its context menu to close the app.
+
+### Working with scenes
+
+ - **Switch** to a scene by clicking it in the sidebar. Activating a window (taskbar, Alt+Tab) switches to its scene as well.
+ - **Combine apps** into one scene by dragging a scene from the sidebar onto the stage, by Shift+clicking it or with "Add to current stage" from its context menu. Arrange the windows side by side with Windows' snap layouts. Combined apps stay together, also after a restart.
+ - **Take an app out** of the current scene by dragging one of its windows onto the sidebar. Dropping it on another scene moves the app over there.
+ - **Pin apps** that should stay visible in every scene, like a file manager on a second screen. Use the "Pinned apps" tray menu or right-click a scene. Focusing a pinned app does not switch scenes.
+ - **Drag files to an app in another scene** by moving the drag to the left screen edge and holding it over the scene for a moment. Stage Manager switches to that scene and the file can be dropped on the app.
+ - The sidebar slides away while windows overlap it and comes back when the mouse touches the left screen edge.
+
+Pinned apps and combined scenes are stored in `%APPDATA%\StageManager\settings.json`. Errors are written to `error.log` in the same folder.
  
 ### Requirements
  - Windows 10 version 2004 or newer
@@ -47,7 +56,10 @@ This is an experimental fun project. I don't have any idea whether or not this i
 |**Product stage**||
 |virtual desktop support (pin window)|⬜|
 |multi-monitor support|⬜|
-|visual feedback when dragging windows from other scenes|⬜|
+|visual feedback when dragging windows from other scenes|✅|
+|combine several apps in one scene|✅|
+|pin apps to all scenes|✅|
+|switch scenes while dragging files|✅|
 |feature parity with macOS Stage Manager|⬜|
 |**Polishing stage**||
 |window animations|⬜|

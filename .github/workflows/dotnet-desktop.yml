@@ -25,7 +25,7 @@ jobs:
 
     # Self-contained single file, so the exe runs without an installed .NET runtime
     - name: Publish
-      run: dotnet publish StageManager/StageManager.csproj --configuration Release --runtime win-x64 --self-contained --output ./Artifacts -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+      run: dotnet publish StageManager/StageManager.csproj --configuration Release --runtime win-x64 --self-contained --output ./Artifacts -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true
 
     - name: Upload exe
       uses: actions/upload-artifact@v4
