@@ -30,7 +30,9 @@ namespace StageManager
 		{
 			var buffer = new StringBuilder(255);
 			Win32.GetClassName(handle, buffer, buffer.Capacity + 1);
-			if (buffer.ToString() == "WorkerW")
+			// newer versions of Windows 11 focus Progman instead of a WorkerW window
+			var className = buffer.ToString();
+			if (className == "WorkerW" || className == "Progman")
 				_desktopViewHandle = handle;
 		}
 

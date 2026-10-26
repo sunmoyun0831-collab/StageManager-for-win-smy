@@ -304,6 +304,11 @@
                             Header="Pinned apps (always visible)" />
                         <Separator />
                         <MenuItem
+                            x:Name="wallpaperClickMenuItem"
+                            Header="Click wallpaper to show desktop"
+                            IsCheckable="True"
+                            Click="MenuItem_WallpaperClick_Click" />
+                        <MenuItem
                             Header="Start with Windows"
                             IsCheckable="True"
                             IsChecked="{Binding StartsWithWindows}" />

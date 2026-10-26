@@ -1,5 +1,6 @@
 ﻿using AsyncAwaitBestPractices;
 using StageManager.Native;
+using StageManager.Native.PInvoke;
 using StageManager.Native.Window;
 using StageManager.Settings;
 using StageManager.Strategies;
@@ -16,7 +17,8 @@ namespace StageManager
 		private readonly Desktop _desktop;
 		private readonly SettingsStore _settingsStore;
 		private readonly AppSettings _settings;
-		private readonly bool _desktopIconsVisibleBeforeStart;
+		private readonly IBackdrop _backdrop;
+		private readonly List<Scene> _recentScenes = new List<Scene>();
 		private readonly HashSet<string> _pinnedApps;
 		private readonly AppGroups _appGroups;
 		private readonly HashSet<IWindow> _hiddenWindows = new HashSet<IWindow>();
@@ -33,6 +35,12 @@ namespace StageManager
 		/// </summary>
 		private const int NEW_WINDOW_ACTIVATION_DELAY_MILLISECONDS = 500;
 
+		/// <summary>
+		/// Windows activates another window when the active one goes away, this is how long we wait for that.
+		/// The same goes for minimizing all windows with Win+D.
+		/// </summary>
+		private const int WINDOWS_REACTION_DELAY_MILLISECONDS = 300;
+
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
 
@@ -40,21 +48,25 @@ namespace StageManager
 
 		public WindowsManager WindowsManager { get; }
 
-		public SceneManager(WindowsManager windowsManager, SettingsStore settingsStore)
+		public SceneManager(WindowsManager windowsManager, SettingsStore settingsStore, IBackdrop backdrop)
 		{
 			WindowsManager = windowsManager ?? throw new ArgumentNullException(nameof(windowsManager));
 			_settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
+			_backdrop = backdrop ?? throw new ArgumentNullException(nameof(backdrop));
 			_settings = settingsStore.Load();
 			_pinnedApps = new HashSet<string>(_settings.PinnedApps, StringComparer.OrdinalIgnoreCase);
 			_appGroups = new AppGroups(_settings.AppGroups);
 			_desktop = new Desktop();
 
-			// a value left over from the last session means it did not exit cleanly and the icons are still hidden by it
-			_desktopIconsVisibleBeforeStart = _settings.DesktopIconsVisibleBeforeStart ?? _desktop.GetDesktopIconsVisible();
-			_settings.DesktopIconsVisibleBeforeStart = _desktopIconsVisibleBeforeStart;
-			SaveSettings();
+			// older versions hid the desktop icons, bring them back if one of them did not exit cleanly
+			if (_settings.DesktopIconsVisibleBeforeStart is bool iconsWereVisible)
+			{
+				if (iconsWereVisible)
+					_desktop.ShowIcons();
 
-			_desktop.HideIcons();
+				_settings.DesktopIconsVisibleBeforeStart = null;
+				SaveSettings();
+			}
 		}
 
 		public async Task Start()
@@ -81,6 +93,9 @@ namespace StageManager
 			if (Interlocked.Exchange(ref _stopped, 1) == 1)
 				return;
 
+			// the windows behind the backdrop show up again once it is gone
+			_backdrop.HideFromAnyThread();
+
 			WindowsManager.Stop();
 
 			IWindow[] hiddenWindows;
@@ -92,18 +107,6 @@ namespace StageManager
 
 			foreach (var w in hiddenWindows)
 				WindowStrategy.Show(w);
-
-			ShowDesktopIconsIfWanted();
-
-			_settings.DesktopIconsVisibleBeforeStart = null;
-			SaveSettings();
-		}
-
-		private void ShowDesktopIconsIfWanted()
-		{
-			// users who hide their desktop icons on their own should not see them come back
-			if (_desktopIconsVisibleBeforeStart)
-				_desktop.ShowIcons();
 		}
 
 		private void ShowWindow(IWindow window)
@@ -114,8 +117,51 @@ namespace StageManager
 			WindowStrategy.Show(window);
 		}
 
-		private void HideWindow(IWindow window) => HideWindows(new[] { window });
+		/// <summary>
+		/// Takes windows off the stage by putting them behind the backdrop, where they keep running.
+		/// Without a stage (in the desktop view) they are minimized.
+		/// </summary>
+		private void MoveOffStage(IReadOnlyCollection<IWindow> windows)
+		{
+			if (!_backdrop.IsVisible)
+			{
+				HideWindows(windows);
+				return;
+			}
 
+			foreach (var window in windows)
+				_backdrop.PutBehind(window.Handle);
+
+			WindowSnapshots.CaptureInBackground(windows);
+		}
+
+		/// <summary>
+		/// Puts the windows of the scene and the pinned windows in front of the backdrop, all other windows end up behind it
+		/// </summary>
+		private void BringOnStage(Scene scene)
+		{
+			// windows minimized by the desktop view or by the user come back with their scene
+			foreach (var window in scene.Windows)
+				ShowWindow(window);
+
+			if (!_backdrop.IsVisible)
+				_backdrop.Show();
+
+			_backdrop.Arrange(scene.Windows.Concat(GetPinnedWindows()).Select(w => w.Handle));
+		}
+
+		/// <summary>
+		/// The desktop lies behind all windows, so they have to be minimized to show it
+		/// </summary>
+		private void ShowDesktop()
+		{
+			_backdrop.Hide();
+			HideWindows(GetSceneableWindows().ToArray());
+		}
+
+		/// <summary>
+		/// Minimizes windows and remembers them to bring them back when Stage Manager quits
+		/// </summary>
 		private void HideWindows(IEnumerable<IWindow> windows)
 		{
 			// windows the user minimized on their own are left alone, they should not be restored on quit
@@ -181,6 +227,9 @@ namespace StageManager
 
 					ShowWindow(window);
 				}
+
+				if (_current is not null)
+					BringOnStage(_current);
 			}
 			else
 			{
@@ -251,9 +300,9 @@ namespace StageManager
 				{
 					source.Remove(window);
 					target.Add(window);
-					ShowWindow(window);
 				}
 
+				BringOnStage(target);
 				RemoveScene(source, windows.Last());
 				SceneChanged?.Invoke(this, new SceneChangedEventArgs(target, windows.Last(), ChangeType.Updated));
 
@@ -289,13 +338,12 @@ namespace StageManager
 				{
 					source.Remove(window);
 					target.Add(window);
-
-					if (target.Equals(_current))
-						ShowWindow(window);
 				}
 
-				if (!target.Equals(_current))
-					HideWindows(windows);
+				if (target.Equals(_current))
+					BringOnStage(target);
+				else
+					MoveOffStage(windows);
 
 				if (source.Windows.Any())
 					SceneChanged?.Invoke(this, new SceneChangedEventArgs(source, appWindow, ChangeType.Updated));
@@ -333,7 +381,7 @@ namespace StageManager
 					scene.Remove(window);
 
 				if (scene.Equals(_current))
-					HideWindows(windows);
+					MoveOffStage(windows);
 
 				var separated = new Scene(windows);
 				_scenes.Add(separated);
@@ -370,7 +418,27 @@ namespace StageManager
 				_desktop.TrySetDesktopView(e);
 
 			if (_desktop.HasDesktopView && _desktop.DesktopViewHandle == e)
-				SwitchTo(null).SafeFireAndForget();
+			{
+				OnDesktopFocused().SafeFireAndForget();
+				return;
+			}
+
+			// a dialog of an app behind the backdrop comes in front when it gets activated, its app has to come along
+			var owner = Win32.GetAncestor(e, Win32.GA.GA_ROOTOWNER);
+			if (owner != e && WindowsManager.Windows.FirstOrDefault(w => w.Handle == owner) is IWindow ownerWindow)
+				SwitchToSceneByWindow(ownerWindow).SafeFireAndForget();
+		}
+
+		/// <summary>
+		/// The desktop gets focused with Win+D, but also when it is clicked on another screen.
+		/// Only Win+D minimizes the windows of the scene, which is when the desktop view makes sense.
+		/// </summary>
+		private async Task OnDesktopFocused()
+		{
+			await Task.Delay(WINDOWS_REACTION_DELAY_MILLISECONDS).ConfigureAwait(true);
+
+			if (_current is not null && _current.Windows.All(w => w.IsMinimized))
+				await SwitchTo(null);
 		}
 
 		private void WindowsManager_WindowDestroyed(IWindow window)
@@ -399,16 +467,35 @@ namespace StageManager
 		private void RemoveScene(Scene scene, IWindow window)
 		{
 			_scenes.Remove(scene);
+			_recentScenes.Remove(scene);
 
-			// don't keep a scene that no longer exists as current, otherwise it can never be switched away from properly.
-			// All other scenes are hidden, so the user is looking at the desktop now.
+			// don't keep a scene that no longer exists as current, otherwise it can never be switched away from properly
 			if (scene.Equals(_current))
 			{
 				_current = null;
-				ShowDesktopIconsIfWanted();
+				FollowUpEmptyStage().SafeFireAndForget();
 			}
 
 			SceneChanged?.Invoke(this, new SceneChangedEventArgs(scene, window, ChangeType.Removed));
+		}
+
+		/// <summary>
+		/// When the last window of the current scene is gone, Windows activates the next window, which switches to its scene.
+		/// If it does not, the most recently used scene comes on stage, like on macOS.
+		/// </summary>
+		private async Task FollowUpEmptyStage()
+		{
+			await Task.Delay(WINDOWS_REACTION_DELAY_MILLISECONDS).ConfigureAwait(true);
+
+			if (_current is not null || _stopped == 1)
+				return;
+
+			var next = _recentScenes.FirstOrDefault(_scenes.Contains) ?? _scenes.FirstOrDefault();
+
+			if (next is not null)
+				await SwitchTo(next);
+			else
+				_backdrop.Hide();
 		}
 
 		public Scene FindSceneForWindow(IWindow window) => FindSceneForWindow(window.Handle);
@@ -457,11 +544,12 @@ namespace StageManager
 			AddToScene(window);
 
 			// A new window usually gets activated right after it was shown, which switches to its scene.
-			// Windows that open in the background must not pull the user out of the current scene, so they are hidden instead.
+			// Windows that open in the background must not pull the user out of the current scene, so they go behind the backdrop.
+			// Without a current scene there is no stage to keep clean.
 			await Task.Delay(NEW_WINDOW_ACTIVATION_DELAY_MILLISECONDS).ConfigureAwait(true);
 
-			if (_stopped == 0 && FindSceneForWindow(window) is Scene scene && !scene.Equals(_current) && !window.IsFocused)
-				HideWindow(window);
+			if (_stopped == 0 && _current is not null && FindSceneForWindow(window) is Scene scene && !scene.Equals(_current) && !window.IsFocused)
+				MoveOffStage(new[] { window });
 		}
 
 		private async Task SwitchToSceneByWindow(IWindow window)
@@ -504,30 +592,30 @@ namespace StageManager
 				foreach (var window in GetSceneableWindows().Where(w => FindSceneForWindow(w) is null).ToArray())
 					AddToScene(window);
 
-				var otherWindows = GetSceneableWindows().Except(scene?.Windows ?? Array.Empty<IWindow>()).ToArray();
-
 				var prior = _current;
 				_current = scene;
 				_priorSceneId = prior?.Id;
 				_switchedAt = DateTime.UtcNow;
 
+				if (scene is not null)
+				{
+					_recentScenes.Remove(scene);
+					_recentScenes.Insert(0, scene);
+				}
+
 				foreach (var s in _scenes)
 					s.IsSelected = s.Equals(scene);
 
-				if (scene is object)
-				{
-					foreach (var w in scene.Windows)
-						ShowWindow(w);
-				}
-
-				HideWindows(otherWindows);
+				if (scene is not null)
+					BringOnStage(scene);
+				else
+					ShowDesktop();
 
 				CurrentSceneSelectionChanged?.Invoke(this, new CurrentSceneSelectionChangedEventArgs(prior, _current));
 
-				if (scene is null)
-					ShowDesktopIconsIfWanted();
-				else
-					_desktop.HideIcons();
+				// the windows that left the stage keep running behind the backdrop, so the pictures don't hold up the switch
+				if (prior is not null && scene is not null)
+					WindowSnapshots.CaptureInBackground(prior.Windows.ToArray());
 			}
 			finally
 			{
@@ -560,10 +648,21 @@ namespace StageManager
 		/// <summary>
 		/// The windows of the current scene (or of all scenes in the desktop view) and the pinned ones.
 		/// </summary>
-		public IEnumerable<IWindow> GetVisibleWindows()
+		public IEnumerable<IWindow> GetVisibleWindows() => (_current?.Windows ?? GetSceneableWindows()).Concat(GetPinnedWindows());
+
+		private IEnumerable<IWindow> GetPinnedWindows() => WindowsManager.Windows.Where(w => HasWindowContent(w) && IsPinned(w));
+
+		/// <summary>
+		/// macOS shows the desktop when the wallpaper is clicked, this can be turned off
+		/// </summary>
+		public bool ClickWallpaperShowsDesktop
 		{
-			var pinnedWindows = WindowsManager.Windows.Where(w => HasWindowContent(w) && IsPinned(w));
-			return (_current?.Windows ?? GetSceneableWindows()).Concat(pinnedWindows);
+			get => _settings.ClickWallpaperShowsDesktop;
+			set
+			{
+				_settings.ClickWallpaperShowsDesktop = value;
+				SaveSettings();
+			}
 		}
 
 		private string GetWindowGroupKey(IWindow window) => window.ProcessName;

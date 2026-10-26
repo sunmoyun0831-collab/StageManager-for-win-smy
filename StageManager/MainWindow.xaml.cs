@@ -42,6 +42,16 @@ namespace StageManager
 		private const double EYE_DISTANCE_FACTOR = 0.5;
 		private const int DRAG_HOVER_MILLISECONDS = 600;
 		private const int QUIT_TIMEOUT_MILLISECONDS = 3000;
+
+		/// <summary>
+		/// The windows behind the backdrop keep running, their pictures in the sidebar are taken again this often
+		/// </summary>
+		private const int SNAPSHOT_REFRESH_SECONDS = 2;
+
+		/// <summary>
+		/// Slideshows replace the wallpaper without telling anyone
+		/// </summary>
+		private const int WALLPAPER_REFRESH_SECONDS = 60;
 		private IntPtr _thisHandle;
 		private TaskPoolGlobalHook _hook;
 		private WindowMode _mode;
@@ -61,6 +71,9 @@ namespace StageManager
 		private volatile bool _isDraggingWindow;
 		private int _dragFeedbackPending;
 		private bool _isQuitting;
+		private BackdropWindow? _backdrop;
+		private DispatcherTimer _snapshotTimer;
+		private DispatcherTimer _wallpaperTimer;
 		private volatile string _quitStep = "";
 		private DispatcherTimer _dragHoverTimer;
 		private SceneModel? _dragHoverScene;
@@ -83,8 +96,15 @@ namespace StageManager
 			_dragHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DRAG_HOVER_MILLISECONDS) };
 			_dragHoverTimer.Tick += DragHoverTimer_Tick;
 
+			_snapshotTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(SNAPSHOT_REFRESH_SECONDS) };
+			_snapshotTimer.Tick += (_, _) => RefreshSnapshots();
+
+			_wallpaperTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(WALLPAPER_REFRESH_SECONDS) };
+			_wallpaperTimer.Tick += (_, _) => _backdrop?.ReloadWallpaper();
+
 			DpiChanged += (_, _) => Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
+			Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
 
 			SwitchSceneCommand = new ActionCommand(model => OnSceneClicked((SceneModel)model));
 		}
@@ -110,6 +130,12 @@ namespace StageManager
 			Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 		}
 
+		private void SystemEvents_UserPreferenceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
+		{
+			if (e.Category == Microsoft.Win32.UserPreferenceCategory.Desktop)
+				Dispatcher.BeginInvoke(() => _backdrop?.ReloadWallpaper());
+		}
+
 		protected override void OnClosed(EventArgs e)
 		{
 			_isQuitting = true;
@@ -123,7 +149,10 @@ namespace StageManager
 			RunQuitStep("removing the tray icon", trayIcon.Dispose);
 
 			_overlapCheckTimer.Stop();
+			_snapshotTimer.Stop();
+			_wallpaperTimer.Stop();
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
+			Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
 
 			base.OnClosed(e);
 
@@ -171,8 +200,11 @@ namespace StageManager
 
 			_thisHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
+			_backdrop = new BackdropWindow(SidebarScreen) { Sidebar = _thisHandle };
+			_backdrop.Clicked += Backdrop_Clicked;
+
 			var windowsManager = new WindowsManager();
-			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault());
+			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), _backdrop);
 			App.RestoreState = SceneManager.Stop;
 			await SceneManager.Start().ConfigureAwait(true);
 
@@ -188,7 +220,35 @@ namespace StageManager
 			if (foregroundScene is object)
 				await SceneManager.SwitchTo(foregroundScene).ConfigureAwait(true);
 
+			// the pictures for the sidebar, the windows of the other scenes are behind the backdrop now
+			WindowSnapshots.CaptureInBackground(SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray());
+
 			_overlapCheckTimer.Start();
+			_snapshotTimer.Start();
+			_wallpaperTimer.Start();
+		}
+
+		/// <summary>
+		/// Keeps the pictures of the front windows in the sidebar up to date while the sidebar is shown
+		/// </summary>
+		private void RefreshSnapshots()
+		{
+			if (!IsVisible || SceneManager is null)
+				return;
+
+			var windows = Scenes
+				.Where(s => s.IsVisible)
+				.SelectMany(s => s.Windows.Where(w => w.StackIndex == 0))
+				.Select(w => w.Window)
+				.ToArray();
+
+			WindowSnapshots.CaptureInBackground(windows);
+		}
+
+		private void Backdrop_Clicked(object? sender, EventArgs e)
+		{
+			if (SceneManager?.ClickWallpaperShowsDesktop == true)
+				SceneManager.SwitchTo(null).SafeFireAndForget();
 		}
 
 		private void WindowSnapshots_Updated(IntPtr handle)
@@ -250,6 +310,8 @@ namespace StageManager
 			_edgeZone = new Rect(workArea.Left, workArea.Top, EDGE_TRIGGER_WIDTH * dpi.DpiScaleX, workArea.Height);
 			_hasScreenLeftOfSidebar = System.Windows.Forms.Screen.AllScreens.Any(s => s.Bounds.Right <= screen.Bounds.Left && s.Bounds.Bottom > workArea.Top && s.Bounds.Top < workArea.Bottom);
 
+			_backdrop?.UpdateScreen(screen);
+
 			Top = workArea.Top / dpi.DpiScaleY;
 			Height = workArea.Height / dpi.DpiScaleY;
 
@@ -305,9 +367,16 @@ namespace StageManager
 
 			// shift click adds the apps of the scene to the current one, like on macOS
 			if ((Win32.GetAsyncKeyState(Win32.VK_SHIFT) & 0x8000) != 0)
+			{
 				SceneManager.AddToCurrentScene(model.Scene);
-			else
-				SceneManager.SwitchTo(model.Scene).SafeFireAndForget();
+				return;
+			}
+
+			SceneManager.SwitchTo(model.Scene).SafeFireAndForget();
+
+			// the click activated the sidebar, hand the focus to the scene's front window so typing goes there
+			var top = ZOrder.Top(model.Scene.Windows.Select(w => w.Handle));
+			model.Scene.Windows.FirstOrDefault(w => w.Handle == top)?.Focus();
 		}
 
 		private void OnMousePressed(object? sender, MouseHookEventArgs e)
@@ -765,6 +834,13 @@ namespace StageManager
 		{
 			StopHook();
 			FillPinnedAppsMenu();
+			wallpaperClickMenuItem.IsChecked = SceneManager?.ClickWallpaperShowsDesktop ?? true;
+		}
+
+		private void MenuItem_WallpaperClick_Click(object sender, RoutedEventArgs e)
+		{
+			if (SceneManager is not null)
+				SceneManager.ClickWallpaperShowsDesktop = wallpaperClickMenuItem.IsChecked;
 		}
 
 		private void SceneContextMenu_Opened(object sender, RoutedEventArgs e)

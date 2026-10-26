@@ -25,6 +25,8 @@ To quit, find the app's tray icon (Windows might move it into the overflow menu)
  - **Pin apps** that should stay visible in every scene, like a file manager on a second screen. Use the "Pinned apps" tray menu or right-click a scene. Focusing a pinned app does not switch scenes.
  - **Drag files to an app in another scene** by moving the drag to the left screen edge and holding it over the scene for a moment. Stage Manager switches to that scene and the file can be dropped on the app.
  - The sidebar slides away while windows overlap it and comes back when the mouse touches the left screen edge.
+ - Windows of other scenes are not minimized, they wait behind a backdrop showing the wallpaper. They keep running, so their pictures in the sidebar stay up to date and no minimize animations play.
+ - Click the wallpaper to show the desktop (can be turned off in the tray menu).
 
 Pinned apps and combined scenes are stored in `%APPDATA%\StageManager\settings.json`. Errors are written to `error.log` in the same folder.
  

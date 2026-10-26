@@ -1,0 +1,29 @@
+<Window
+    x:Class="StageManager.BackdropWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Stage Manager Backdrop"
+    WindowStyle="None"
+    ResizeMode="NoResize"
+    ShowInTaskbar="False"
+    ShowActivated="False"
+    AllowsTransparency="True"
+    Background="Black"
+    Width="0"
+    Height="0">
+    <!--
+        AllowsTransparency makes this a layered window. Browsers stop drawing windows that are covered by opaque windows,
+        but don't count layered windows as covering them, so the windows behind the backdrop stay alive.
+    -->
+    <Grid
+        x:Name="wallpaperArea"
+        ClipToBounds="True">
+        <Rectangle
+            x:Name="tiles"
+            Visibility="Collapsed" />
+        <Image
+            x:Name="image"
+            HorizontalAlignment="Center"
+            VerticalAlignment="Center" />
+    </Grid>
+</Window>

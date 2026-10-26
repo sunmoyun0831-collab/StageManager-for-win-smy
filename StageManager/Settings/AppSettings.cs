@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace StageManager.Settings
 {
@@ -15,8 +15,13 @@ namespace StageManager.Settings
 		public List<List<string>> AppGroups { get; set; } = new List<List<string>>();
 
 		/// <summary>
-		/// The desktop icon visibility before Stage Manager hid the icons. Only set while Stage Manager is running,
-		/// so a value found on startup means the last session did not exit cleanly and the icons have to be restored.
+		/// macOS shows the desktop when the wallpaper is clicked
+		/// </summary>
+		public bool ClickWallpaperShowsDesktop { get; set; } = true;
+
+		/// <summary>
+		/// The desktop icon visibility before older versions hid the icons. Only set while they were running,
+		/// so a value found on startup means one of them did not exit cleanly and the icons have to be restored.
 		/// </summary>
 		public bool? DesktopIconsVisibleBeforeStart { get; set; }
 	}
