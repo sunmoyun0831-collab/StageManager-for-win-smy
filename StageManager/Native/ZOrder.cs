@@ -20,15 +20,6 @@ namespace StageManager.Native
 		private static readonly IntPtr HWND_TOP = IntPtr.Zero;
 
 		[DllImport("user32.dll")]
-		private static extern IntPtr BeginDeferWindowPos(int nNumWindows);
-
-		[DllImport("user32.dll")]
-		private static extern IntPtr DeferWindowPos(IntPtr hWinPosInfo, IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
-
-		[DllImport("user32.dll")]
-		private static extern bool EndDeferWindowPos(IntPtr hWinPosInfo);
-
-		[DllImport("user32.dll")]
 		private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
 		[DllImport("user32.dll")]
@@ -38,43 +29,30 @@ namespace StageManager.Native
 		private static extern bool IsWindow(IntPtr hWnd);
 
 		/// <summary>
-		/// Puts the given windows on top of all other windows (topmost ones aside) and keeps their order among each other.
-		/// The windows behind them follow in the given order right after them.
+		/// Puts our own windows on top of all windows (topmost ones aside) and raises the given windows of other apps above them.
 		/// </summary>
-		/// <param name="front">Windows that end up on top, in any order</param>
-		/// <param name="behind">Windows that come right after the front windows, in this order</param>
-		public static void Arrange(IEnumerable<IntPtr> front, IReadOnlyList<IntPtr> behind)
+		/// <param name="front">Windows of other apps that end up on top, in any order</param>
+		/// <param name="ownWindows">Windows of this app that come right behind the front windows, the first one in front</param>
+		public static void Arrange(IEnumerable<IntPtr> front, IReadOnlyList<IntPtr> ownWindows)
 		{
-			var chain = SortTopToBottom(front.Where(CanBeOrdered).Distinct())
-				.Concat(behind.Where(CanBeOrdered))
-				.ToList();
+			// Windows of other apps only move once their app gets to it, so where they are can't be relied on.
+			// Placing our windows relative to them put our windows where the other windows were, not where they ended up.
+			// Our own windows move at once, so they go on top first (the back one first) and the other windows follow above them.
+			foreach (var own in ownWindows.Reverse().Where(CanBeOrdered))
+				SetWindowPos(own, HWND_TOP, 0, 0, 0, 0, FLAGS);
 
-			if (chain.Count == 0)
-				return;
+			Raise(front);
+		}
 
-			// one batch changes the order at once, without the windows flickering through intermediate orders
-			var batch = BeginDeferWindowPos(chain.Count);
-			var insertAfter = HWND_TOP;
-
-			foreach (var handle in chain)
-			{
-				if (batch == IntPtr.Zero)
-					break;
-
-				batch = DeferWindowPos(batch, handle, insertAfter, 0, 0, 0, 0, FLAGS);
-				insertAfter = handle;
-			}
-
-			if (batch != IntPtr.Zero && EndDeferWindowPos(batch))
-				return;
-
-			// a window that went away in the meantime fails the whole batch, so do it one by one then
-			insertAfter = HWND_TOP;
-			foreach (var handle in chain.Where(IsWindow))
-			{
-				SetWindowPos(handle, insertAfter, 0, 0, 0, 0, FLAGS);
-				insertAfter = handle;
-			}
+		/// <summary>
+		/// Puts the windows on top of all others (topmost ones aside), keeping their order among each other
+		/// </summary>
+		public static void Raise(IEnumerable<IntPtr> handles)
+		{
+			// the back one first, each one goes on top of the ones before.
+			// Asynchronous, a window that hangs must not block Stage Manager.
+			foreach (var handle in SortTopToBottom(handles.Where(CanBeOrdered).Distinct()).Reverse())
+				SetWindowPos(handle, HWND_TOP, 0, 0, 0, 0, FLAGS | SWP_ASYNCWINDOWPOS);
 		}
 
 		/// <summary>

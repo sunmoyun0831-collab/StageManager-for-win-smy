@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -41,8 +42,12 @@ namespace StageManager
 		[DllImport("user32.dll")]
 		private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
 
+		private const int ARRANGE_CHECK_DELAY_MILLISECONDS = 150;
+
 		private IntPtr _handle;
 		private bool _isArranging;
+		private int _arrangeVersion;
+		private int _reportedArrangeProblems;
 		private System.Windows.Forms.Screen _screen;
 		private WallpaperInfo? _wallpaper;
 		private DateTime _wallpaperFileTime;
@@ -208,6 +213,7 @@ namespace StageManager
 				return;
 
 			var frontWindows = front.ToArray();
+			var version = ++_arrangeVersion;
 
 			try
 			{
@@ -219,31 +225,38 @@ namespace StageManager
 				_isArranging = false;
 			}
 
-			ReportWindowsBehind(frontWindows);
+			CheckArrangementLater(frontWindows, version);
 		}
 
-		private int _reportedArrangeProblems;
-
 		/// <summary>
-		/// Logs if windows that should be in front of the backdrop ended up behind it, to find out why if that happens
+		/// The windows of other apps move a moment later, when their apps get to it.
+		/// Raises the ones that still lie behind the backdrop then, and logs it to find out why if that happens.
 		/// </summary>
-		private void ReportWindowsBehind(IntPtr[] front)
+		private async void CheckArrangementLater(IntPtr[] front, int version)
 		{
-			if (_reportedArrangeProblems >= 3)
+			await Task.Delay(ARRANGE_CHECK_DELAY_MILLISECONDS);
+
+			// the stage changed in the meantime, the windows may lie behind the backdrop on purpose now
+			if (version != _arrangeVersion || !IsVisible)
 				return;
 
 			var behind = ZOrder.FindBehind(front, _handle);
 			if (behind.Count == 0)
 				return;
 
-			_reportedArrangeProblems++;
-			App.Log(new InvalidOperationException($"{behind.Count} of {front.Length} windows of the scene ended up behind the backdrop: {string.Join(", ", behind.Select(h => h.ToString("X")))}"));
+			ZOrder.Raise(behind);
+
+			if (_reportedArrangeProblems++ < 3)
+				App.Log(new InvalidOperationException($"{behind.Count} of {front.Length} windows of the scene were still behind the backdrop: {string.Join(", ", behind.Select(h => h.ToString("X")))}"));
 		}
 
 		public void PutBehind(IntPtr window)
 		{
-			if (_handle != IntPtr.Zero)
-				ZOrder.PutBehind(window, _handle);
+			if (_handle == IntPtr.Zero)
+				return;
+
+			_arrangeVersion++;
+			ZOrder.PutBehind(window, _handle);
 		}
 
 		/// <summary>
