@@ -25,6 +25,7 @@ namespace StageManager.Native.Window
         string Title { get; }
         string Class { get; }
         IWindowLocation Location { get; }
+        Rectangle VisibleBounds { get; }
         Rectangle Offset { get; }
 
         int ProcessId { get; }

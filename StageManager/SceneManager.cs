@@ -474,7 +474,14 @@ namespace StageManager
 			return _scenes;
 		}
 
-		public IEnumerable<IWindow> GetCurrentWindows() => _current?.Windows ?? GetSceneableWindows();
+		/// <summary>
+		/// The windows of the current scene (or of all scenes in the desktop view) and the pinned ones.
+		/// </summary>
+		public IEnumerable<IWindow> GetVisibleWindows()
+		{
+			var pinnedWindows = WindowsManager.Windows.Where(w => HasWindowContent(w) && IsPinned(w));
+			return (_current?.Windows ?? GetSceneableWindows()).Concat(pinnedWindows);
+		}
 
 		private string GetWindowGroupKey(IWindow window) => window.ProcessName;
 	}

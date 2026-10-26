@@ -31,12 +31,19 @@ namespace StageManager
 		private const int TIMERINTERVAL_MILLISECONDS = 500;
 		private const int MAX_SCENES = 6;
 		private const string APP_NAME = "StageManager";
+		private const int EDGE_TRIGGER_WIDTH = 44;
+		private const int EDGE_DWELL_MILLISECONDS = 300;
 		private IntPtr _thisHandle;
 		private TaskPoolGlobalHook _hook;
 		private WindowMode _mode;
-		private double _lastWidth;
+		private int _modeVersion;
 		private DispatcherTimer _overlapCheckTimer;
+		private DispatcherTimer _edgeDwellTimer;
 		private Point _mouse = new Point(0, 0);
+		private volatile bool _mouseAtEdge;
+		private Rect _sidebarZone;
+		private Rect _edgeZone;
+		private bool _hasScreenLeftOfSidebar;
 		private SceneModel _removedCurrentScene;
 		private SceneModel _mouseDownScene;
 
@@ -53,6 +60,12 @@ namespace StageManager
 			_overlapCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TIMERINTERVAL_MILLISECONDS) };
 			_overlapCheckTimer.Tick += (_, _) => OverlapCheck();
 
+			_edgeDwellTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(EDGE_DWELL_MILLISECONDS) };
+			_edgeDwellTimer.Tick += EdgeDwellTimer_Tick;
+
+			DpiChanged += (_, _) => Dispatcher.BeginInvoke(UpdateSidebarGeometry);
+			Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
+
 			SwitchSceneCommand = new ActionCommand(async model => await SceneManager!.SwitchTo(((SceneModel)model).Scene));
 		}
 
@@ -61,9 +74,20 @@ namespace StageManager
 			base.OnInitialized(e);
 
 			_thisHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
-			_lastWidth = Width;
 
 			StartHook();	
+		}
+
+		protected override void OnSourceInitialized(EventArgs e)
+		{
+			base.OnSourceInitialized(e);
+
+			UpdateSidebarGeometry();
+		}
+
+		private void SystemEvents_DisplaySettingsChanged(object? sender, EventArgs e)
+		{
+			Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 		}
 
 		protected override void OnClosed(EventArgs e)
@@ -73,6 +97,7 @@ namespace StageManager
 			trayIcon.Dispose();
 
 			_overlapCheckTimer.Stop();
+			Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
 			SceneManager?.Stop();
 			App.RestoreState = null;
 
@@ -139,14 +164,36 @@ namespace StageManager
 			SyncVisibilityByUpdatedTimeStamp();
 		}
 
-		protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
+		/// <summary>
+		/// The sidebar sits on the left edge of the primary screen
+		/// </summary>
+		private static System.Windows.Forms.Screen SidebarScreen => System.Windows.Forms.Screen.PrimaryScreen!;
+
+		/// <summary>
+		/// Places the sidebar on its screen and caches the areas used to check for windows and the mouse.
+		/// Screen coordinates are physical pixels (the app is per monitor DPI aware), the window itself is placed in device independent units.
+		/// </summary>
+		private void UpdateSidebarGeometry()
 		{
-			base.OnRenderSizeChanged(sizeInfo);
-			var area = this.GetMonitorWorkSize();
-			this.Left = 0;
-			this.Top = 0;
-			this.Height = area.Height;
+			var screen = SidebarScreen;
+			var workArea = screen.WorkingArea;
+			var dpi = VisualTreeHelper.GetDpi(this);
+
+			_sidebarZone = new Rect(workArea.Left, workArea.Top, Width * dpi.DpiScaleX, workArea.Height);
+			_edgeZone = new Rect(workArea.Left, workArea.Top, EDGE_TRIGGER_WIDTH * dpi.DpiScaleX, workArea.Height);
+			_hasScreenLeftOfSidebar = System.Windows.Forms.Screen.AllScreens.Any(s => s.Bounds.Right <= screen.Bounds.Left && s.Bounds.Bottom > workArea.Top && s.Bounds.Top < workArea.Bottom);
+
+			Top = workArea.Top / dpi.DpiScaleY;
+			Height = workArea.Height / dpi.DpiScaleY;
+
+			if (Mode != WindowMode.OffScreen)
+			{
+				BeginAnimation(LeftProperty, null);
+				Left = OnScreenLeft;
+			}
 		}
+
+		private double OnScreenLeft => _sidebarZone.Left / VisualTreeHelper.GetDpi(this).DpiScaleX;
 
 		private void SceneManager_SceneChanged(object sender, SceneChangedEventArgs e)
 		{
@@ -226,7 +273,7 @@ namespace StageManager
 
 			if (EnableWindowPullToScene)
 			{
-				if (e.Data.X > _lastWidth && _mouseDownScene is object)
+				if (e.Data.X >= _sidebarZone.Right && _mouseDownScene is object)
 				{
 					this.Dispatcher.Invoke(() =>
 					{
@@ -236,15 +283,13 @@ namespace StageManager
 			}
 		}
 
+		/// <param name="p">A point in physical screen coordinates</param>
 		private SceneModel FindSceneByPoint(Point p)
 		{
-			var thisWindow = new WindowsWindow(_thisHandle);
-			var pointOnWindow = new Point(p.X - thisWindow.Location.X, p.Y - thisWindow.Location.Y);
+			if (!IsVisible)
+				return null;
 
-			var dpi = VisualTreeHelper.GetDpi(this);
-
-			pointOnWindow.X /= dpi.DpiScaleX;
-			pointOnWindow.Y /= dpi.DpiScaleY;
+			var pointOnWindow = PointFromScreen(p);
 
 			SceneModel model = null;
 
@@ -296,20 +341,45 @@ namespace StageManager
 			}
 		}
 
+		/// <summary>
+		/// Slides the sidebar in or out. Once out, the window is hidden as "out" would be on top of another screen left of the sidebar.
+		/// </summary>
 		private void ApplyWindowMode()
 		{
-			var newLeft = Mode == StageManager.WindowMode.OffScreen ? (-1 * Width) : 0.0;
+			var version = ++_modeVersion;
+			var isOffScreen = Mode == WindowMode.OffScreen;
+
+			if (!isOffScreen && !IsVisible)
+				Show();
+
+			// sliding out to the left would move the sidebar over the other screen, so just hide and show it there
+			if (_hasScreenLeftOfSidebar)
+			{
+				BeginAnimation(LeftProperty, null);
+				Left = OnScreenLeft;
+
+				if (isOffScreen)
+					Hide();
+
+				return;
+			}
+
+			var newLeft = isOffScreen ? OnScreenLeft - Width : OnScreenLeft;
 			if (Left == newLeft)
 				return;
 
-			var isIncoming = newLeft > Left;
-			var easingMode = isIncoming ? EasingMode.EaseOut : EasingMode.EaseIn;
+			var easingMode = isOffScreen ? EasingMode.EaseIn : EasingMode.EaseOut;
 
 			var animation = new DoubleAnimationUsingKeyFrames();
 			animation.Duration = new Duration(TimeSpan.FromSeconds(0.5));
 			var easingFunction = new PowerEase { EasingMode = easingMode };
 			animation.KeyFrames.Add(new EasingDoubleKeyFrame(Left, KeyTime.FromPercent(0)));
 			animation.KeyFrames.Add(new EasingDoubleKeyFrame(newLeft, KeyTime.FromPercent(1.0), easingFunction));
+			animation.Completed += (_, _) =>
+			{
+				if (version == _modeVersion && Mode == WindowMode.OffScreen)
+					Hide();
+			};
 
 			BeginAnimation(LeftProperty, animation);
 		}
@@ -321,6 +391,7 @@ namespace StageManager
 			_hook.MousePressed += OnMousePressed;
 			_hook.MouseReleased += OnMouseReleased;
 			_hook.MouseMoved += _hook_MouseMoved;
+			_hook.MouseDragged += _hook_MouseMoved;
 
 			Task.Run(_hook.Run);
 		}
@@ -330,6 +401,7 @@ namespace StageManager
 			_hook.MousePressed -= OnMousePressed;
 			_hook.MouseReleased -= OnMouseReleased;
 			_hook.MouseMoved -= _hook_MouseMoved;
+			_hook.MouseDragged -= _hook_MouseMoved;
 
 			try
 			{
@@ -340,15 +412,46 @@ namespace StageManager
 			}
 		}
 
+		/// <summary>
+		/// Called on a thread pool thread for every mouse move, also while dragging (windows, files, ...)
+		/// </summary>
 		private void _hook_MouseMoved(object? sender, MouseHookEventArgs e)
 		{
-			_mouse.X = e.Data.X;
-			_mouse.Y = e.Data.Y;
+			_mouse = new Point(e.Data.X, e.Data.Y);
 
-			if (Mode == WindowMode.OffScreen && e.Data.X <= 44)
+			var atEdge = _edgeZone.Contains(_mouse);
+			if (atEdge == _mouseAtEdge)
+				return;
+
+			_mouseAtEdge = atEdge;
+			Dispatcher.BeginInvoke(() => OnMouseAtEdgeChanged(atEdge));
+		}
+
+		private void OnMouseAtEdgeChanged(bool atEdge)
+		{
+			if (!atEdge)
 			{
-				Dispatcher.Invoke(() => Mode = WindowMode.Flyover);
+				_edgeDwellTimer.Stop();
+				return;
 			}
+
+			if (Mode != WindowMode.OffScreen)
+				return;
+
+			// with another screen to the left, the mouse crosses the edge whenever it moves between the screens.
+			// Only fly in if it rests at the edge for a moment then.
+			if (_hasScreenLeftOfSidebar)
+				_edgeDwellTimer.Start();
+			else
+				Mode = WindowMode.Flyover;
+		}
+
+		private void EdgeDwellTimer_Tick(object? sender, EventArgs e)
+		{
+			_edgeDwellTimer.Stop();
+
+			if (_mouseAtEdge && Mode == WindowMode.OffScreen)
+				Mode = WindowMode.Flyover;
 		}
 
 		private void OverlapCheck()
@@ -356,17 +459,24 @@ namespace StageManager
 			if (SceneManager is null)
 				return;
 
-			var currentWindows = SceneManager.GetCurrentWindows().ToArray();
-			UpdateModeByWindows(currentWindows);
+			UpdateModeByWindows(SceneManager.GetVisibleWindows());
+		}
+
+		private bool OverlapsSidebar(IWindow window)
+		{
+			if (window.IsMinimized)
+				return false;
+
+			var bounds = window.VisibleBounds;
+			return bounds.Left < _sidebarZone.Right && bounds.Right > _sidebarZone.Left
+				&& bounds.Top < _sidebarZone.Bottom && bounds.Bottom > _sidebarZone.Top;
 		}
 
 		private void UpdateModeByWindows(IEnumerable<IWindow> windows)
 		{
-			bool doesOverlap(IWindowLocation loc) => loc.State == Native.Window.WindowState.Maximized || (loc.State == Native.Window.WindowState.Normal && (loc.X * 2) < _lastWidth);
+			var anyOverlappingWindows = windows.Any(OverlapsSidebar);
 
-			var anyOverlappingWindows = windows.Any(w => doesOverlap(w.Location));
-
-			var containsMouse = _mouse.X <= _lastWidth;
+			var containsMouse = _sidebarZone.Contains(_mouse);
 			var setMode = Mode == WindowMode.OnScreen && !containsMouse
 							|| Mode == WindowMode.OffScreen
 							|| (Mode == WindowMode.Flyover && !containsMouse);

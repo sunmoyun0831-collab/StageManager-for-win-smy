@@ -15,10 +15,11 @@ namespace StageManager
 		{
 			InitializeComponent();
 			LayoutUpdated += DwmThumbnail_LayoutUpdated;
+			Unloaded += (_, _) => StopCapture();
 		}
 
 		private IntPtr _dwmThumbnail;
-		private Window _window;
+		private Window? _window;
 		private Point? _dpiScaleFactor;
 
 		public static readonly DependencyProperty PreviewHandleProperty = DependencyProperty.Register(nameof(PreviewHandle),
@@ -53,18 +54,20 @@ namespace StageManager
 		{
 			base.OnPropertyChanged(e);
 
-			if (nameof(PreviewHandle).Equals(e.Property.Name))
+			if (e.Property == PreviewHandleProperty)
 			{
-				if ((IntPtr)e.OldValue == IntPtr.Zero && (IntPtr)e.NewValue != IntPtr.Zero)
-					StartCapture();
-
-				UpdateThumbnailProperties();
+				StopCapture();
+				StartCapture();
 			}
 
-			if (nameof(IsVisible).Equals(e.Property.Name) && !(bool)e.NewValue && _dwmThumbnail != IntPtr.Zero)
+			// a thumbnail is drawn by DWM no matter if WPF shows the control or not, so it has to be removed while invisible.
+			// It has to come back once the control is visible again, like when a hidden sidebar or scene is shown.
+			if (e.Property == IsVisibleProperty)
 			{
-				NativeMethods.DwmUnregisterThumbnail(_dwmThumbnail);
-				_dwmThumbnail = IntPtr.Zero;
+				if ((bool)e.NewValue)
+					StartCapture();
+				else
+					StopCapture();
 			}
 		}
 
@@ -81,14 +84,30 @@ namespace StageManager
 
 		private void StartCapture()
 		{
-			var windowHandle = new System.Windows.Interop.WindowInteropHelper(FindWindow()).Handle;
-
-			var hr = NativeMethods.DwmRegisterThumbnail(windowHandle, PreviewHandle, out _dwmThumbnail);
-			if (hr != 0)
+			if (_dwmThumbnail != IntPtr.Zero || PreviewHandle == IntPtr.Zero || !IsVisible || FindWindow() is not Window window)
 				return;
+
+			var windowHandle = new System.Windows.Interop.WindowInteropHelper(window).Handle;
+			if (windowHandle == IntPtr.Zero)
+				return;
+
+			if (NativeMethods.DwmRegisterThumbnail(windowHandle, PreviewHandle, out var thumbnail) == 0)
+			{
+				_dwmThumbnail = thumbnail;
+				UpdateThumbnailProperties();
+			}
 		}
 
-		private Window FindWindow() => _window ??= Window.GetWindow(this);
+		private void StopCapture()
+		{
+			if (_dwmThumbnail == IntPtr.Zero)
+				return;
+
+			NativeMethods.DwmUnregisterThumbnail(_dwmThumbnail);
+			_dwmThumbnail = IntPtr.Zero;
+		}
+
+		private Window? FindWindow() => _window ??= Window.GetWindow(this);
 
 		private void UpdateThumbnailProperties()
 		{
@@ -97,7 +116,10 @@ namespace StageManager
 
 			var dpi = GetDpiScaleFactor();
 
-			var previewBounds = BoundsRelativeTo(this, FindWindow());
+			if (FindWindow() is not Window window)
+				return;
+
+			var previewBounds = BoundsRelativeTo(this, window);
 
 			var thumbnailRect = new RECT
 			{

@@ -169,6 +169,23 @@ namespace StageManager.Native
 			return value;
 		}
 
+		/// <summary>
+		/// The bounds the user sees. The window rect also contains the invisible resize borders around the window.
+		/// </summary>
+		public Rectangle VisibleBounds
+		{
+			get
+			{
+				var rect = new Win32.Rect();
+				var size = Marshal.SizeOf(typeof(Win32.Rect));
+
+				if (Win32.DwmGetWindowAttribute(_handle, (int)Win32.DwmWindowAttribute.DWMWA_EXTENDED_FRAME_BOUNDS, out rect, size) != 0)
+					Win32.GetWindowRect(_handle, ref rect);
+
+				return Rectangle.FromLTRB(rect.Left, rect.Top, rect.Right, rect.Bottom);
+			}
+		}
+
 		public Rectangle Offset
 		{
 			get
