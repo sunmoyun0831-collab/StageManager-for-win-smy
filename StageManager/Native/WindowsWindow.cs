@@ -263,7 +263,8 @@ namespace StageManager.Native
 				"SearchApp",
 				"SearchHost", // Windows 11 search
 				"search", // Windows 11 RTM search
-				"ScreenClippingHost"
+				"ScreenClippingHost",
+				"dwm" // Desktop Window Manager, e.g. the ghost windows standing in for hung apps
 			};
 
 			if (ignoreProcesses.Contains(ProcessName))
