@@ -755,19 +755,46 @@ namespace StageManager
 			UpdateModeByWindows(SceneManager.GetVisibleWindows());
 		}
 
-		private bool OverlapsSidebar(IWindow window)
+		/// <summary>
+		/// Like on macOS, windows may reach into the sidebar, which then lies behind them to leave them the room.
+		/// It only gets out of the way once a window covers more than half of the scene cards.
+		/// </summary>
+		private static bool OverlapsSidebar(IWindow window, Rect cards)
 		{
 			if (window.IsMinimized)
 				return false;
 
 			var bounds = window.VisibleBounds;
-			return bounds.Left < _sidebarZone.Right && bounds.Right > _sidebarZone.Left
-				&& bounds.Top < _sidebarZone.Bottom && bounds.Bottom > _sidebarZone.Top;
+			var coveredWidth = Math.Min(bounds.Right, cards.Right) - Math.Max(bounds.Left, cards.Left);
+			var coversVertically = bounds.Top < cards.Bottom && bounds.Bottom > cards.Top;
+
+			return coversVertically && coveredWidth > cards.Width / 2;
+		}
+
+		/// <summary>
+		/// The part of the screen the scene cards take when the sidebar is shown, in physical pixels
+		/// </summary>
+		private Rect GetCardsZone()
+		{
+			if (scenesControl.ActualWidth <= scenesControl.Padding.Left || scenesControl.ActualHeight <= 0)
+				return _sidebarZone;
+
+			var dpi = VisualTreeHelper.GetDpi(this);
+			var cards = scenesControl.TransformToAncestor(this).TransformBounds(new Rect(scenesControl.RenderSize));
+			var padding = scenesControl.Padding.Left;
+
+			// relative to the sidebar's place on screen, as it may be sliding or hidden right now
+			return new Rect(
+				_sidebarZone.Left + (cards.Left + padding) * dpi.DpiScaleX,
+				_sidebarZone.Top + cards.Top * dpi.DpiScaleY,
+				(cards.Width - padding) * dpi.DpiScaleX,
+				cards.Height * dpi.DpiScaleY);
 		}
 
 		private void UpdateModeByWindows(IEnumerable<IWindow> windows)
 		{
-			var anyOverlappingWindows = windows.Any(OverlapsSidebar);
+			var cards = GetCardsZone();
+			var anyOverlappingWindows = windows.Any(w => OverlapsSidebar(w, cards));
 
 			var containsMouse = _sidebarZone.Contains(_mouse);
 			var setMode = Mode == WindowMode.OnScreen && !containsMouse
