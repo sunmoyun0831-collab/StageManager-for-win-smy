@@ -5,16 +5,18 @@ namespace StageManager.Strategies
 {
     internal class NormalizeAndMinimizeWindowStrategy : IWindowStrategy
 	{
+		// ShowWindowAsync because ShowWindow waits for the app, which blocks Stage Manager as long as an app hangs
+
 		public void Show(IWindow window)
 		{
 			// restoring a window that is not minimized would turn a maximized window into a normal one
 			if (window.IsMinimized)
-				Win32.ShowWindow(window.Handle, Win32.SW.SW_SHOWNOACTIVATE);
+				Win32.ShowWindowAsync(window.Handle, Win32.SW.SW_SHOWNOACTIVATE);
 		}
 
 		public void Hide(IWindow window)
 		{
-			Win32.ShowWindow(window.Handle, Win32.SW.SW_MINIMIZE);
+			Win32.ShowWindowAsync(window.Handle, Win32.SW.SW_MINIMIZE);
 		}
 	}
 }

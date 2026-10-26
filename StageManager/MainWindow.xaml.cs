@@ -34,6 +34,7 @@ namespace StageManager
 		private const int EDGE_TRIGGER_WIDTH = 44;
 		private const int EDGE_DWELL_MILLISECONDS = 300;
 		private const int DRAG_HOVER_MILLISECONDS = 600;
+		private const int QUIT_TIMEOUT_MILLISECONDS = 3000;
 		private IntPtr _thisHandle;
 		private TaskPoolGlobalHook _hook;
 		private WindowMode _mode;
@@ -52,6 +53,8 @@ namespace StageManager
 		private Size _draggedWindowSize;
 		private volatile bool _isDraggingWindow;
 		private int _dragFeedbackPending;
+		private bool _isQuitting;
+		private volatile string _quitStep = "";
 		private DispatcherTimer _dragHoverTimer;
 		private SceneModel? _dragHoverScene;
 
@@ -102,18 +105,57 @@ namespace StageManager
 
 		protected override void OnClosed(EventArgs e)
 		{
-			StopHook();
+			_isQuitting = true;
+			StartQuitWatchdog();
 
-			trayIcon.Dispose();
+			// bring back the windows first, the rest matters less if anything goes wrong
+			RunQuitStep("restoring windows", () => SceneManager?.Stop());
+			App.RestoreState = null;
+
+			RunQuitStep("stopping the mouse hook", StopHook);
+			RunQuitStep("removing the tray icon", trayIcon.Dispose);
 
 			_overlapCheckTimer.Stop();
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
-			SceneManager?.Stop();
-			App.RestoreState = null;
 
 			base.OnClosed(e);
 
+			_quitStep = "exiting";
 			Environment.Exit(0);
+		}
+
+		/// <summary>
+		/// Cleaning up talks to other apps and Explorer, which can hang.
+		/// Whatever happens, quitting must not leave the process behind.
+		/// </summary>
+		private void StartQuitWatchdog()
+		{
+			var watchdog = new Thread(() =>
+			{
+				Thread.Sleep(QUIT_TIMEOUT_MILLISECONDS);
+				App.Log(new TimeoutException($"Quitting got stuck while {_quitStep}, ending the process"));
+				Process.GetCurrentProcess().Kill();
+			})
+			{
+				IsBackground = true,
+				Name = "QuitWatchdog"
+			};
+
+			watchdog.Start();
+		}
+
+		private void RunQuitStep(string step, Action action)
+		{
+			_quitStep = step;
+
+			try
+			{
+				action();
+			}
+			catch (Exception ex)
+			{
+				App.Log(ex);
+			}
 		}
 
 		protected override async void OnContentRendered(EventArgs e)
@@ -592,8 +634,9 @@ namespace StageManager
 			{
 				_hook.Dispose();
 			}
-			catch (HookException)
+			catch (HookException ex)
 			{
+				App.Log(ex);
 			}
 		}
 
@@ -699,7 +742,8 @@ namespace StageManager
 
 		private void ContextMenu_Closed(object sender, RoutedEventArgs e)
 		{
-			StartHook();
+			if (!_isQuitting)
+				StartHook();
 		}
 
 		private void ContextMenu_Opened(object sender, RoutedEventArgs e)

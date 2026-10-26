@@ -12,7 +12,10 @@ namespace StageManager
 		static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
 
 		[DllImport("user32.dll", CharSet = CharSet.Auto)]
-		static extern IntPtr SendMessage(IntPtr hWnd, UInt32 Msg, IntPtr wParam, IntPtr lParam);
+		static extern IntPtr SendMessageTimeout(IntPtr hWnd, UInt32 Msg, IntPtr wParam, IntPtr lParam, UInt32 fuFlags, UInt32 uTimeout, out IntPtr lpdwResult);
+
+		private const uint SMTO_ABORTIFHUNG = 0x0002;
+		private const uint EXPLORER_TIMEOUT_MILLISECONDS = 1000;
 
 		[DllImport("user32.dll", SetLastError = true)]
 		public static extern IntPtr FindWindowEx(IntPtr parentHandle, IntPtr childAfter, string className, string windowTitle);
@@ -45,7 +48,8 @@ namespace StageManager
 		private void ToggleDesktopIcons()
 		{
 			var toggleDesktopCommand = new IntPtr(0x7402);
-			SendMessage(GetDesktopSHELLDLL_DefView(), WM_COMMAND, toggleDesktopCommand, IntPtr.Zero);
+			// a hanging Explorer must not block Stage Manager
+			SendMessageTimeout(GetDesktopSHELLDLL_DefView(), WM_COMMAND, toggleDesktopCommand, IntPtr.Zero, SMTO_ABORTIFHUNG, EXPLORER_TIMEOUT_MILLISECONDS, out _);
 		}
 
 		public void ShowIcons()
