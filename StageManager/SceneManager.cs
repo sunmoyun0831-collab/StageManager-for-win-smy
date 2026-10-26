@@ -114,16 +114,23 @@ namespace StageManager
 			WindowStrategy.Show(window);
 		}
 
-		private void HideWindow(IWindow window)
+		private void HideWindow(IWindow window) => HideWindows(new[] { window });
+
+		private void HideWindows(IEnumerable<IWindow> windows)
 		{
 			// windows the user minimized on their own are left alone, they should not be restored on quit
-			if (window.IsMinimized)
-				return;
+			var visibleWindows = windows.Where(w => !w.IsMinimized).ToArray();
 
-			lock (_hiddenWindowsLock)
-				_hiddenWindows.Add(window);
+			// the sidebar shows the windows as they looked right before they were hidden, minimized windows can't be captured
+			WindowSnapshots.Capture(visibleWindows);
 
-			WindowStrategy.Hide(window);
+			foreach (var window in visibleWindows)
+			{
+				lock (_hiddenWindowsLock)
+					_hiddenWindows.Add(window);
+
+				WindowStrategy.Hide(window);
+			}
 		}
 
 		private void SaveSettings()
@@ -285,9 +292,10 @@ namespace StageManager
 
 					if (target.Equals(_current))
 						ShowWindow(window);
-					else
-						HideWindow(window);
 				}
+
+				if (!target.Equals(_current))
+					HideWindows(windows);
 
 				if (source.Windows.Any())
 					SceneChanged?.Invoke(this, new SceneChangedEventArgs(source, appWindow, ChangeType.Updated));
@@ -322,12 +330,10 @@ namespace StageManager
 				_suspend = true;
 
 				foreach (var window in windows)
-				{
 					scene.Remove(window);
 
-					if (scene.Equals(_current))
-						HideWindow(window);
-				}
+				if (scene.Equals(_current))
+					HideWindows(windows);
 
 				var separated = new Scene(windows);
 				_scenes.Add(separated);
@@ -371,6 +377,8 @@ namespace StageManager
 		{
 			lock (_hiddenWindowsLock)
 				_hiddenWindows.Remove(window);
+
+			WindowSnapshots.Remove(window.Handle);
 
 			var scene = FindSceneForWindow(window);
 
@@ -512,8 +520,7 @@ namespace StageManager
 						ShowWindow(w);
 				}
 
-				foreach (var o in otherWindows)
-					HideWindow(o);
+				HideWindows(otherWindows);
 
 				CurrentSceneSelectionChanged?.Invoke(this, new CurrentSceneSelectionChangedEventArgs(prior, _current));
 

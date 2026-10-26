@@ -19,6 +19,7 @@ namespace StageManager.Model
 			model.Id = scene.Id;
 			model.Windows = new ObservableCollection<WindowModel>(scene.Windows.Select(w => new WindowModel(w)));
 			model.Scene = scene;
+			model.UpdateStackIndexes();
 			return model;
 		}
 
@@ -69,7 +70,18 @@ namespace StageManager.Model
 				}
 			}
 
+			UpdateStackIndexes();
+
 			Updated = DateTime.UtcNow;
+		}
+
+		/// <summary>
+		/// The most recently added window is in front
+		/// </summary>
+		private void UpdateStackIndexes()
+		{
+			for (var i = 0; i < Windows.Count; i++)
+				Windows[i].StackIndex = Windows.Count - 1 - i;
 		}
 
 		private void Scene_SelectedChanged(object? sender, EventArgs e)

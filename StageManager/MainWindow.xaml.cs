@@ -130,6 +130,7 @@ namespace StageManager
 			SceneManager.SceneChanged += SceneManager_SceneChanged;
 			SceneManager.CurrentSceneSelectionChanged += SceneManager_CurrentSceneSelectionChanged;
 			SceneManager.WindowsManager.WindowUpdated += WindowsManager_WindowUpdated;
+			WindowSnapshots.Updated += WindowSnapshots_Updated;
 
 			AddInitialScenes();
 
@@ -139,6 +140,12 @@ namespace StageManager
 				await SceneManager.SwitchTo(foregroundScene).ConfigureAwait(true);
 
 			_overlapCheckTimer.Start();
+		}
+
+		private void WindowSnapshots_Updated(IntPtr handle)
+		{
+			foreach (var window in AllScenes.SelectMany(s => s.Windows).Where(w => w.Handle == handle))
+				window.RefreshSnapshot();
 		}
 
 		private void AddInitialScenes()

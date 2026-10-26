@@ -23,6 +23,43 @@
     Drop="Window_Drop"
     Name="thisWindow">
     <Window.Resources>
+        <BooleanToVisibilityConverter
+            x:Key="BooleanToVisibility" />
+        <!-- windows minimized before Stage Manager could take a picture of them show a live but flat thumbnail -->
+        <Style
+            x:Key="VisibleWithoutSnapshot"
+            TargetType="{x:Type FrameworkElement}">
+            <Style.Triggers>
+                <DataTrigger
+                    Binding="{Binding HasSnapshot}"
+                    Value="True">
+                    <Setter
+                        Property="Visibility"
+                        Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- cards turn towards the user while the mouse or something dragged is over their scene -->
+        <Style
+            x:Key="TiltedCard"
+            TargetType="{x:Type local:TiltedImage}">
+            <Style.Triggers>
+                <DataTrigger
+                    Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType={x:Type StackPanel}}}"
+                    Value="True">
+                    <Setter
+                        Property="IsHighlighted"
+                        Value="True" />
+                </DataTrigger>
+                <DataTrigger
+                    Binding="{Binding DataContext.IsDropTarget, RelativeSource={RelativeSource AncestorType={x:Type StackPanel}}}"
+                    Value="True">
+                    <Setter
+                        Property="IsHighlighted"
+                        Value="True" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
         <Style
             x:Key="SceneOpacity"
             TargetType="{x:Type StackPanel}">
@@ -106,10 +143,41 @@
                 ItemsSource="{Binding Scenes}">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
+                        <!-- the almost transparent background makes the whole scene clickable, fully transparent pixels let clicks through -->
                         <StackPanel Orientation="Vertical"
                             Visibility="{Binding Visibility}"
                             Style="{StaticResource SceneOpacity}"
+                            Background="#01FFFFFF"
                             ContextMenuOpening="Scene_ContextMenuOpening">
+                            <StackPanel.RenderTransform>
+                                <TranslateTransform />
+                            </StackPanel.RenderTransform>
+                            <StackPanel.Triggers>
+                                <!-- scenes slide into the sidebar -->
+                                <EventTrigger
+                                    RoutedEvent="FrameworkElement.Loaded">
+                                    <BeginStoryboard>
+                                        <Storyboard>
+                                            <DoubleAnimation
+                                                Storyboard.TargetProperty="(UIElement.RenderTransform).(TranslateTransform.X)"
+                                                From="-80"
+                                                To="0"
+                                                Duration="0:0:0.35">
+                                                <DoubleAnimation.EasingFunction>
+                                                    <CubicEase
+                                                        EasingMode="EaseOut" />
+                                                </DoubleAnimation.EasingFunction>
+                                            </DoubleAnimation>
+                                            <DoubleAnimation
+                                                Storyboard.TargetProperty="Opacity"
+                                                From="0"
+                                                To="0.8"
+                                                Duration="0:0:0.35"
+                                                FillBehavior="Stop" />
+                                        </Storyboard>
+                                    </BeginStoryboard>
+                                </EventTrigger>
+                            </StackPanel.Triggers>
                             <StackPanel.ContextMenu>
                                 <!-- filled when opening -->
                                 <ContextMenu
@@ -138,22 +206,60 @@
                                                 Margin="0,0,0,0"></Grid>
                                         </ItemsPanelTemplate>
                                     </ItemsControl.ItemsPanel>
+                                    <!-- the windows of a scene are stacked, the front window on top -->
+                                    <ItemsControl.ItemContainerStyle>
+                                        <Style
+                                            TargetType="{x:Type ContentPresenter}">
+                                            <Setter
+                                                Property="Panel.ZIndex"
+                                                Value="{Binding ZIndex}" />
+                                            <Setter
+                                                Property="Visibility"
+                                                Value="{Binding StackVisibility}" />
+                                        </Style>
+                                    </ItemsControl.ItemContainerStyle>
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <local:DwmThumbnail
-                                                PreviewHandle="{Binding Handle}"
-                                                MinHeight="100"
-                                                MinWidth="150"
-                                                Margin="0, 0, 0, 0" />
+                                            <Grid
+                                                Width="200"
+                                                Height="130"
+                                                RenderTransformOrigin="0.5,0.5">
+                                                <Grid.RenderTransform>
+                                                    <TransformGroup>
+                                                        <ScaleTransform
+                                                            ScaleX="{Binding StackScale}"
+                                                            ScaleY="{Binding StackScale}" />
+                                                        <TranslateTransform
+                                                            X="{Binding StackOffsetX}"
+                                                            Y="{Binding StackOffsetY}" />
+                                                    </TransformGroup>
+                                                </Grid.RenderTransform>
+                                                <local:DwmThumbnail
+                                                    PreviewHandle="{Binding Handle}"
+                                                    Style="{StaticResource VisibleWithoutSnapshot}"
+                                                    Width="170"
+                                                    Height="105" />
+                                                <local:TiltedImage
+                                                    Source="{Binding Snapshot}"
+                                                    Style="{StaticResource TiltedCard}"
+                                                    Visibility="{Binding HasSnapshot, Converter={StaticResource BooleanToVisibility}}">
+                                                    <local:TiltedImage.Effect>
+                                                        <DropShadowEffect
+                                                            BlurRadius="18"
+                                                            ShadowDepth="4"
+                                                            Opacity="0.45" />
+                                                    </local:TiltedImage.Effect>
+                                                </local:TiltedImage>
+                                            </Grid>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                             </Border>
-                            <!-- Icons -->
+                            <!-- Icons, overlapping the bottom of the cards like on macOS -->
                             <ItemsControl
                                 VerticalAlignment="Center"
-                                HorizontalAlignment="Center"
-                                Margin="0,4,0,24"
+                                HorizontalAlignment="Left"
+                                Margin="10,-26,0,18"
                                 ItemsSource="{Binding Windows}">
                                 <ItemsControl.ItemsPanel>
                                     <ItemsPanelTemplate>

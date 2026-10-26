@@ -18,8 +18,14 @@ namespace StageManager.Model
 		[return: MarshalAs(UnmanagedType.Bool)]
 		public static extern bool DeleteObject([In] IntPtr hObject);
 
+		/// <summary>
+		/// Like on macOS, only the front windows of a scene are shown as a stack in the sidebar
+		/// </summary>
+		private const int MAX_STACKED_WINDOWS = 3;
+
 		private IWindow _window;
 		private ImageSource _iconSource;
+		private int _stackIndex;
 
 		public event PropertyChangedEventHandler PropertyChanged;
 
@@ -95,5 +101,50 @@ namespace StageManager.Model
 		}
 
 		public IntPtr Handle => _window?.Handle ?? IntPtr.Zero;
+
+		/// <summary>
+		/// The picture taken when the window was hidden, null if it was minimized before Stage Manager could take one
+		/// </summary>
+		public ImageSource? Snapshot => WindowSnapshots.Get(Handle);
+
+		public bool HasSnapshot => Snapshot is not null;
+
+		public void RefreshSnapshot()
+		{
+			RaisePropertyChanged(nameof(Snapshot));
+			RaisePropertyChanged(nameof(HasSnapshot));
+		}
+
+		/// <summary>
+		/// The position in the stack of windows of a scene, 0 is the front window
+		/// </summary>
+		public int StackIndex
+		{
+			get => _stackIndex;
+			set
+			{
+				if (_stackIndex == value)
+					return;
+
+				_stackIndex = value;
+				RaisePropertyChanged();
+				RaisePropertyChanged(nameof(ZIndex));
+				RaisePropertyChanged(nameof(StackOffsetX));
+				RaisePropertyChanged(nameof(StackOffsetY));
+				RaisePropertyChanged(nameof(StackScale));
+				RaisePropertyChanged(nameof(StackVisibility));
+			}
+		}
+
+		public int ZIndex => -StackIndex;
+
+		// windows further back peek out to the left and above the front window
+		public double StackOffsetX => StackIndex * -10;
+
+		public double StackOffsetY => StackIndex * -6;
+
+		public double StackScale => Math.Pow(0.94, StackIndex);
+
+		public Visibility StackVisibility => StackIndex < MAX_STACKED_WINDOWS ? Visibility.Visible : Visibility.Collapsed;
 	}
 }
