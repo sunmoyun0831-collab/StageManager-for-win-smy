@@ -215,8 +215,14 @@ namespace StageManager
 
 			AddInitialScenes();
 
-			var foreground = Win32.GetForegroundWindow();
-			var foregroundScene = SceneManager.FindSceneForWindow(foreground);
+			// start with the scene of the active window, or of the top window if the active one is in no scene (like a pinned one)
+			var foregroundScene = SceneManager.FindSceneForWindow(Win32.GetForegroundWindow());
+			if (foregroundScene is null)
+			{
+				var sceneWindows = SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray();
+				foregroundScene = SceneManager.FindSceneForWindow(ZOrder.Top(sceneWindows.Select(w => w.Handle)));
+			}
+
 			if (foregroundScene is object)
 				await SceneManager.SwitchTo(foregroundScene).ConfigureAwait(true);
 

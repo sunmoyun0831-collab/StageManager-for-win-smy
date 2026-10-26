@@ -87,6 +87,25 @@ namespace StageManager.Native
 		}
 
 		/// <summary>
+		/// The windows that lie behind the given one, of the ones that can be ordered at all
+		/// </summary>
+		public static IReadOnlyList<IntPtr> FindBehind(IEnumerable<IntPtr> handles, IntPtr other)
+		{
+			var order = new Dictionary<IntPtr, int>();
+
+			Win32.EnumWindows((handle, _) =>
+			{
+				order[handle] = order.Count;
+				return true;
+			}, IntPtr.Zero);
+
+			if (!order.TryGetValue(other, out var otherIndex))
+				return Array.Empty<IntPtr>();
+
+			return handles.Where(CanBeOrdered).Where(h => order.TryGetValue(h, out var index) && index > otherIndex).ToList();
+		}
+
+		/// <summary>
 		/// The window lying on top of the others
 		/// </summary>
 		public static IntPtr Top(IEnumerable<IntPtr> handles) => SortTopToBottom(handles).FirstOrDefault();

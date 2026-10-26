@@ -82,7 +82,9 @@ namespace StageManager
 			transform.Children.Add(new RotateTransform3D(_rotation));
 			transform.Children.Add(_translation);
 
-			var model = new GeometryModel3D(_mesh, new DiffuseMaterial(_brush)) { Transform = transform };
+			// the back gets the picture as well, so the card is drawn no matter which side the renderer considers the front
+			var material = new DiffuseMaterial(_brush);
+			var model = new GeometryModel3D(_mesh, material) { BackMaterial = material, Transform = transform };
 
 			var scene = new Model3DGroup();
 			scene.Children.Add(new AmbientLight(Colors.White));
@@ -275,8 +277,8 @@ namespace StageManager
 		/// A projection for the eye looking straight at the screen, mapped to the part of the screen covered by the viewport.
 		/// It is the same projection for all images, just cut to each viewport (an off-axis projection),
 		/// which gives all images the same vanishing point.
-		/// The depth only has to stay between 0 and 1, but must not be proportional to w, which would make the matrix
-		/// impossible to invert for hit testing.
+		/// The depth stays between 0 and 1 and grows with the distance from the eye like with WPF's own cameras.
+		/// It must not be proportional to w, which would make the matrix impossible to invert for hit testing.
 		/// </summary>
 		private static Matrix3D CreateProjection(Rect viewport, Point3D eye)
 		{
@@ -287,7 +289,7 @@ namespace StageManager
 			return new Matrix3D(
 				2 / viewport.Width, 0, 0, 0,
 				0, 2 / viewport.Height, 0, 0,
-				-2 * eye.X / (viewport.Width * distance) + left / distance, 2 * eye.Y / (viewport.Height * distance) - top / distance, -0.25 / distance, -1 / distance,
+				-2 * eye.X / (viewport.Width * distance) + left / distance, 2 * eye.Y / (viewport.Height * distance) - top / distance, -0.75 / distance, -1 / distance,
 				-left, top, 0.5, 1);
 		}
 	}

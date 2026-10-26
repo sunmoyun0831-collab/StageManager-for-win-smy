@@ -3,6 +3,7 @@ using StageManager.Native.PInvoke;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
@@ -105,24 +106,23 @@ namespace StageManager
 		/// </summary>
 		public void ReloadWallpaper()
 		{
-			WallpaperInfo wallpaper;
+			// a wallpaper that can't be read must never keep the backdrop from working, it stays plain then
 			try
 			{
-				wallpaper = Wallpaper.Get(_screen.Bounds);
+				var wallpaper = Wallpaper.Get(_screen.Bounds);
+
+				var fileTime = wallpaper.Path is null ? DateTime.MinValue : File.GetLastWriteTimeUtc(wallpaper.Path);
+				if (wallpaper == _wallpaper && fileTime == _wallpaperFileTime)
+					return;
+
+				_wallpaper = wallpaper;
+				_wallpaperFileTime = fileTime;
+				ShowWallpaper(wallpaper);
 			}
 			catch (Exception ex)
 			{
 				App.Log(ex);
-				return;
 			}
-
-			var fileTime = wallpaper.Path is null ? DateTime.MinValue : File.GetLastWriteTimeUtc(wallpaper.Path);
-			if (wallpaper == _wallpaper && fileTime == _wallpaperFileTime)
-				return;
-
-			_wallpaper = wallpaper;
-			_wallpaperFileTime = fileTime;
-			ShowWallpaper(wallpaper);
 		}
 
 		private void ShowWallpaper(WallpaperInfo wallpaper)
@@ -191,8 +191,9 @@ namespace StageManager
 				picture.Freeze();
 				return picture;
 			}
-			catch (Exception ex) when (ex is IOException || ex is NotSupportedException || ex is UnauthorizedAccessException || ex is ArgumentException)
+			catch (Exception ex)
 			{
+				// images can fail in many ways, from missing codecs to broken files
 				App.Log(ex);
 				return null;
 			}
@@ -206,15 +207,37 @@ namespace StageManager
 			if (_handle == IntPtr.Zero)
 				return;
 
+			var frontWindows = front.ToArray();
+
 			try
 			{
 				_isArranging = true;
-				ZOrder.Arrange(front, new[] { Sidebar, _handle });
+				ZOrder.Arrange(frontWindows, new[] { Sidebar, _handle });
 			}
 			finally
 			{
 				_isArranging = false;
 			}
+
+			ReportWindowsBehind(frontWindows);
+		}
+
+		private int _reportedArrangeProblems;
+
+		/// <summary>
+		/// Logs if windows that should be in front of the backdrop ended up behind it, to find out why if that happens
+		/// </summary>
+		private void ReportWindowsBehind(IntPtr[] front)
+		{
+			if (_reportedArrangeProblems >= 3)
+				return;
+
+			var behind = ZOrder.FindBehind(front, _handle);
+			if (behind.Count == 0)
+				return;
+
+			_reportedArrangeProblems++;
+			App.Log(new InvalidOperationException($"{behind.Count} of {front.Length} windows of the scene ended up behind the backdrop: {string.Join(", ", behind.Select(h => h.ToString("X")))}"));
 		}
 
 		public void PutBehind(IntPtr window)

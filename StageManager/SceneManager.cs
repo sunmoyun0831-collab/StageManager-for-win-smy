@@ -144,10 +144,19 @@ namespace StageManager
 			foreach (var window in scene.Windows)
 				ShowWindow(window);
 
-			if (!_backdrop.IsVisible)
-				_backdrop.Show();
+			try
+			{
+				if (!_backdrop.IsVisible)
+					_backdrop.Show();
 
-			_backdrop.Arrange(scene.Windows.Concat(GetPinnedWindows()).Select(w => w.Handle));
+				_backdrop.Arrange(scene.Windows.Concat(GetPinnedWindows()).Select(w => w.Handle));
+			}
+			catch (Exception ex)
+			{
+				// switching scenes has to work anyway, the old way is to minimize the other windows
+				App.Log(ex);
+				HideWindows(GetSceneableWindows().Except(scene.Windows).ToArray());
+			}
 		}
 
 		/// <summary>
