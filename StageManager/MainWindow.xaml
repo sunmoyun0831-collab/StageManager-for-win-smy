@@ -304,6 +304,21 @@
                             Header="Pinned apps (always visible)" />
                         <Separator />
                         <MenuItem
+                            x:Name="minimizeModeMenuItem"
+                            Header="Hide other windows by minimizing them (works with Alt+Tab)"
+                            IsCheckable="True"
+                            Click="MenuItem_HideMode_Click" />
+                        <MenuItem
+                            x:Name="backdropModeMenuItem"
+                            Header="Hide other windows behind the wallpaper (experimental)"
+                            IsCheckable="True"
+                            Click="MenuItem_HideMode_Click" />
+                        <MenuItem
+                            x:Name="animationsMenuItem"
+                            Header="Let windows fly to the sidebar"
+                            IsCheckable="True"
+                            Click="MenuItem_Animations_Click" />
+                        <MenuItem
                             x:Name="wallpaperClickMenuItem"
                             Header="Click wallpaper to show desktop"
                             IsCheckable="True"

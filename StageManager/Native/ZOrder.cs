@@ -124,7 +124,10 @@ namespace StageManager.Native
 		/// </summary>
 		private static bool CanBeOrdered(IntPtr handle) => handle != IntPtr.Zero && IsWindow(handle) && !IsTopmost(handle) && !IsHungAppWindow(handle);
 
-		private static IEnumerable<IntPtr> SortTopToBottom(IEnumerable<IntPtr> handles)
+		/// <summary>
+		/// The windows in the order they lie on top of each other, the top one first
+		/// </summary>
+		public static IEnumerable<IntPtr> SortTopToBottom(IEnumerable<IntPtr> handles)
 		{
 			var wanted = handles.ToHashSet();
 			var sorted = new List<IntPtr>();

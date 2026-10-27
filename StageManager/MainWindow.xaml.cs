@@ -194,7 +194,7 @@ namespace StageManager
 			_backdrop.Clicked += Backdrop_Clicked;
 
 			var windowsManager = new WindowsManager();
-			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), _backdrop);
+			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), _backdrop, new StageAnimator(FindCard));
 			App.RestoreState = SceneManager.Stop;
 			await SceneManager.Start().ConfigureAwait(true);
 
@@ -213,11 +213,14 @@ namespace StageManager
 				foregroundScene = SceneManager.FindSceneForWindow(ZOrder.Top(sceneWindows.Select(w => w.Handle)));
 			}
 
+			// nothing to fly to yet, the sidebar is just being filled
 			if (foregroundScene is object)
-				await SceneManager.SwitchTo(foregroundScene).ConfigureAwait(true);
+				await SceneManager.SwitchTo(foregroundScene, animate: false).ConfigureAwait(true);
 
-			// the pictures for the sidebar, the windows of the other scenes are behind the backdrop now
-			WindowSnapshots.CaptureInBackground(SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray());
+			// the pictures for the sidebar, the windows of the other scenes are behind the backdrop now.
+			// Minimized windows got their pictures taken right before.
+			if (SceneManager.HideMode == HideMode.Backdrop)
+				WindowSnapshots.CaptureInBackground(SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray());
 
 			_overlapCheckTimer.Start();
 			_wallpaperTimer.Start();
@@ -792,6 +795,65 @@ namespace StageManager
 				cards.Height * dpi.DpiScaleY);
 		}
 
+		/// <summary>
+		/// Where a window is shown in the sidebar, in physical pixels. Windows without a card of their own, like the ones of the
+		/// current scene, take the place of the given scene. If that has no card either, they go to the middle of the sidebar.
+		/// </summary>
+		private Rect FindCard(IntPtr window, Scene slot)
+		{
+			var dpi = VisualTreeHelper.GetDpi(this);
+
+			var model = Scenes.FirstOrDefault(s => s.IsVisible && s.Windows.Any(w => w.Handle == window))
+				?? Scenes.FirstOrDefault(s => s.IsVisible && s.Id == slot.Id);
+
+			if (model is not null
+				&& scenesControl.ItemContainerGenerator.ContainerFromItem(model) is FrameworkElement container
+				&& FindFirst<Border>(container) is Border cards
+				&& cards.ActualWidth > 0 && cards.ActualHeight > 0
+				&& cards.IsDescendantOf(this))
+			{
+				// the windows are drawn inside the border of the cards
+				var bounds = cards.TransformToAncestor(this).TransformBounds(new Rect(cards.RenderSize));
+				var insetX = cards.BorderThickness.Left + cards.Padding.Left;
+				var insetY = cards.BorderThickness.Top + cards.Padding.Top;
+
+				if (bounds.Width > 2 * insetX && bounds.Height > 2 * insetY)
+					bounds.Inflate(-insetX, -insetY);
+
+				return ToScreen(bounds, dpi);
+			}
+
+			const double CARD_WIDTH = 200;
+			const double CARD_HEIGHT = 130;
+			var middle = new Rect(scenesControl.Padding.Left, (ActualHeight - CARD_HEIGHT) / 2, CARD_WIDTH, CARD_HEIGHT);
+			return ToScreen(middle, dpi);
+		}
+
+		/// <summary>
+		/// Converts bounds relative to the sidebar into physical screen coordinates.
+		/// Relative to the sidebar's place on screen, as it may be sliding or hidden right now.
+		/// </summary>
+		private Rect ToScreen(Rect bounds, DpiScale dpi) => new Rect(
+			_sidebarZone.Left + bounds.Left * dpi.DpiScaleX,
+			_sidebarZone.Top + bounds.Top * dpi.DpiScaleY,
+			bounds.Width * dpi.DpiScaleX,
+			bounds.Height * dpi.DpiScaleY);
+
+		private static T? FindFirst<T>(DependencyObject parent) where T : DependencyObject
+		{
+			for (var i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+			{
+				var child = VisualTreeHelper.GetChild(parent, i);
+				if (child is T match)
+					return match;
+
+				if (FindFirst<T>(child) is T descendant)
+					return descendant;
+			}
+
+			return null;
+		}
+
 		private void UpdateModeByWindows(IEnumerable<IWindow> windows)
 		{
 			var cards = GetCardsZone();
@@ -840,8 +902,32 @@ namespace StageManager
 		{
 			StopHook();
 			FillPinnedAppsMenu();
-			wallpaperClickMenuItem.IsChecked = SceneManager?.ClickWallpaperShowsDesktop ?? true;
 			debugLogMenuItem.IsChecked = DebugLog.Enabled;
+
+			if (SceneManager is null)
+				return;
+
+			var usesBackdrop = SceneManager.HideMode == HideMode.Backdrop;
+			minimizeModeMenuItem.IsChecked = !usesBackdrop;
+			backdropModeMenuItem.IsChecked = usesBackdrop;
+
+			// the animation is for minimized windows, the wallpaper can only be clicked with the backdrop
+			animationsMenuItem.IsChecked = SceneManager.Animations;
+			animationsMenuItem.IsEnabled = !usesBackdrop;
+			wallpaperClickMenuItem.IsChecked = SceneManager.ClickWallpaperShowsDesktop;
+			wallpaperClickMenuItem.IsEnabled = usesBackdrop;
+		}
+
+		private void MenuItem_HideMode_Click(object sender, RoutedEventArgs e)
+		{
+			if (SceneManager is not null)
+				SceneManager.HideMode = sender == backdropModeMenuItem ? HideMode.Backdrop : HideMode.Minimize;
+		}
+
+		private void MenuItem_Animations_Click(object sender, RoutedEventArgs e)
+		{
+			if (SceneManager is not null)
+				SceneManager.Animations = animationsMenuItem.IsChecked;
 		}
 
 		private void MenuItem_DebugLog_Click(object sender, RoutedEventArgs e)

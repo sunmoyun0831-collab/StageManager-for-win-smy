@@ -25,10 +25,10 @@ To quit, find the app's tray icon (Windows might move it into the overflow menu)
  - **Pin apps** that should stay visible in every scene, like a file manager on a second screen. Use the "Pinned apps" tray menu or right-click a scene. Focusing a pinned app does not switch scenes.
  - **Drag files to an app in another scene** by moving the drag to the left screen edge and holding it over the scene for a moment. Stage Manager switches to that scene and the file can be dropped on the app.
  - The sidebar slides away while windows overlap it and comes back when the mouse touches the left screen edge.
- - Windows of other scenes are not minimized, they wait behind a backdrop showing the wallpaper, so no minimize animations play and maximized or snapped windows stay as they are. The sidebar shows them as they looked when they left the stage.
- - Click the wallpaper to show the desktop (can be turned off in the tray menu).
+ - Windows of other scenes are minimized, so Alt+Tab and the taskbar work as usual. When switching scenes, the windows fly into the sidebar and out of it, like on macOS (can be turned off in the tray menu). The sidebar shows them as they looked when they left the stage.
+ - Experimental, from the tray menu: windows of other scenes are not minimized but wait behind a backdrop showing the wallpaper, so maximized or snapped windows stay as they are. Clicking the wallpaper shows the desktop then (can be turned off as well).
 
-Pinned apps and combined scenes are stored in `%APPDATA%\StageManager\settings.json`. Errors are written to `error.log` in the same folder.
+Pinned apps, combined scenes and the tray menu settings are stored in `%APPDATA%\StageManager\settings.json`. Errors are written to `error.log` in the same folder.
  
 ### Requirements
  - Windows 10 version 2004 or newer
@@ -64,7 +64,7 @@ This is an experimental fun project. I don't have any idea whether or not this i
 |switch scenes while dragging files|✅|
 |feature parity with macOS Stage Manager|⬜|
 |**Polishing stage**||
-|window animations|⬜|
+|window animations|✅|
 |live dwm thumbnails|✅|
 |adjust 3D angle according to screen position|⬜|
 |flyover sidebar in desktop view mode if icons are close to the left|⬜|

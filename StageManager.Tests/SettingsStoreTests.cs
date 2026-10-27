@@ -68,5 +68,32 @@ namespace StageManager.Tests
 			Assert.NotNull(settings.PinnedApps);
 			Assert.NotNull(settings.AppGroups);
 		}
+
+		[Fact]
+		public void Windows_Are_Minimized_With_Animations_By_Default()
+		{
+			// older settings files don't have these values, they must not end up with the backdrop
+			Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+			File.WriteAllText(SettingsPath, "{ \"PinnedApps\": [\"explorer\"] }");
+
+			var settings = new SettingsStore(SettingsPath).Load();
+
+			Assert.Equal(HideMode.Minimize, settings.HideMode);
+			Assert.True(settings.Animations);
+		}
+
+		[Fact]
+		public void Hide_Mode_Is_Saved_By_Name()
+		{
+			var store = new SettingsStore(SettingsPath);
+			store.Save(new AppSettings { HideMode = HideMode.Backdrop, Animations = false });
+
+			Assert.Contains("\"Backdrop\"", File.ReadAllText(SettingsPath));
+
+			var loaded = store.Load();
+
+			Assert.Equal(HideMode.Backdrop, loaded.HideMode);
+			Assert.False(loaded.Animations);
+		}
 	}
 }

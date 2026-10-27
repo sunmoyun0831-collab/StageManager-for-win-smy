@@ -111,6 +111,10 @@ namespace StageManager
 		/// </summary>
 		public void ReloadWallpaper()
 		{
+			// the wallpaper is read once the backdrop is shown the first time, it is not needed while windows are minimized
+			if (_handle == IntPtr.Zero)
+				return;
+
 			// a wallpaper that can't be read must never keep the backdrop from working, it stays plain then
 			try
 			{
