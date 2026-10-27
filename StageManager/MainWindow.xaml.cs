@@ -184,12 +184,13 @@ namespace StageManager
 
 			AddInitialScenes();
 
-			// start with the scene of the active window, or of the top window if the active one is in no scene (like a pinned one)
+			// start with the scene of the active window, or of the top window if the active one is in no scene (like a pinned one).
+			// Minimized windows are left alone, if all of them are minimized there is no scene on stage.
 			var foregroundScene = SceneManager.FindSceneForWindow(Win32.GetForegroundWindow());
 			if (foregroundScene is null)
 			{
-				var sceneWindows = SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray();
-				foregroundScene = SceneManager.FindSceneForWindow(ZOrder.Top(sceneWindows.Select(w => w.Handle)));
+				var shownWindows = SceneManager.GetScenes().SelectMany(s => s.Windows).Where(w => !w.IsMinimized).ToArray();
+				foregroundScene = SceneManager.FindSceneForWindow(ZOrder.Top(shownWindows.Select(w => w.Handle)));
 			}
 
 			// nothing to fly to yet, the sidebar is just being filled

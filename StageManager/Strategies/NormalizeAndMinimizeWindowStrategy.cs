@@ -9,8 +9,9 @@ namespace StageManager.Strategies
 
 		public void Show(IWindow window)
 		{
-			// restoring a window that is not minimized would turn a maximized window into a normal one
-			if (window.IsMinimized)
+			// restoring a window that is not minimized would turn a maximized window into a normal one,
+			// and hidden windows have to stay hidden, even if they are minimized
+			if (window.IsMinimized && Win32.IsWindowVisible(window.Handle))
 				Win32.ShowWindowAsync(window.Handle, Win32.SW.SW_SHOWNOACTIVATE);
 		}
 

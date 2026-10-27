@@ -23,11 +23,15 @@ namespace StageManager.Native
 		private static extern bool GetLayeredWindowAttributes(IntPtr hwnd, out uint crKey, out byte bAlpha, out uint dwFlags);
 
 		/// <summary>
-		/// True if the window has a size, lies on a screen and is not fully transparent.
+		/// True if the window is shown, has a size, lies on a screen and is not fully transparent.
 		/// Minimized windows are checked where they would be when restored.
 		/// </summary>
 		public static bool CanBeSeen(IWindow window)
 		{
+			// apps hide windows they don't want to be seen, like when they go to the notification area
+			if (!Win32.IsWindowVisible(window.Handle))
+				return false;
+
 			System.Drawing.Rectangle bounds;
 
 			if (window.IsMinimized)

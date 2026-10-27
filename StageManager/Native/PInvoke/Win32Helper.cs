@@ -20,7 +20,8 @@ namespace StageManager.Native.PInvoke
 
         public static bool IsAppWindow(IntPtr hwnd)
         {
-            return (Win32.IsWindowVisible(hwnd) || Win32.IsIconic(hwnd)) &&
+            // minimized windows stay visible, hidden windows with the minimized style are helper windows nobody ever sees
+            return Win32.IsWindowVisible(hwnd) &&
                    !Win32.GetWindowExStyleLongPtr(hwnd).HasFlag(Win32.WS_EX.WS_EX_NOACTIVATE) &&
                    !Win32.GetWindowStyleLongPtr(hwnd).HasFlag(Win32.WS.WS_CHILD);
         }
