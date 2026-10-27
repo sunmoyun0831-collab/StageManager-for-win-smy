@@ -8,6 +8,8 @@
 		<UseWindowsForms>true</UseWindowsForms>
 		<ApplicationIcon>StageManager.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<Version>1.0.0</Version>
+		<Product>Stage Manager for Windows</Product>
 	</PropertyGroup>
 
 	<ItemGroup>

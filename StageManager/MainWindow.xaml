@@ -300,6 +300,7 @@
                         Opened="ContextMenu_Opened"
                         Closed="ContextMenu_Closed">
                         <MenuItem
+                            x:Name="titleMenuItem"
                             Header="Stage Manager"
                             Style="{StaticResource Menu.Title}" />
                         <MenuItem

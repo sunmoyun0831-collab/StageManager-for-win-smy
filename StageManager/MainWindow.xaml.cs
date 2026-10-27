@@ -73,6 +73,7 @@ namespace StageManager
 			InitializeComponent();
 
 			DataContext = this;
+			titleMenuItem.Header = $"Stage Manager {GetType().Assembly.GetName().Version?.ToString(3)}";
 
 			// runs on the UI thread, the scenes must not be read while they are changed
 			_overlapCheckTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(TIMERINTERVAL_MILLISECONDS) };

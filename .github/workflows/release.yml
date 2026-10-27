@@ -1,0 +1,43 @@
+name: Release
+
+# Run from the Actions tab: builds the exe on Windows and publishes it as a GitHub release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, like 1.0.0
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+
+  release:
+
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x
+
+    - name: Test
+      run: dotnet test StageManager.Tests/StageManager.Tests.csproj --configuration Release
+
+    # Self-contained single file, so the exe runs without an installed .NET runtime
+    - name: Publish
+      run: dotnet publish StageManager/StageManager.csproj --configuration Release --runtime win-x64 --self-contained --output ./Artifacts -p:PublishReadyToRun=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:Version=${{ inputs.version }}
+
+    - name: Publish release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: v${{ inputs.version }}
+        target_commitish: ${{ github.sha }}
+        name: Stage Manager ${{ inputs.version }}
+        body_path: .github/release-notes.md
+        files: ./Artifacts/StageManager.exe
