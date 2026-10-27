@@ -144,10 +144,11 @@ namespace StageManager
 		/// <summary>
 		/// Shows the windows of the scene and the pinned windows, all other windows get out of the way
 		/// </summary>
-		private void BringOnStage(Scene scene, bool animate = true)
+		/// <param name="activated">The window whose activation caused the switch, Windows brings it to the front on its own</param>
+		private void BringOnStage(Scene scene, bool animate = true, IWindow? activated = null)
 		{
 			if (HideMode == HideMode.Minimize)
-				SwapWindows(scene, animate);
+				SwapWindows(scene, animate, activated);
 			else
 				ArrangeOnBackdrop(scene);
 		}
@@ -156,13 +157,14 @@ namespace StageManager
 		/// Restores the windows of the scene and minimizes all others, which works with Alt+Tab and the taskbar.
 		/// The windows fly between the stage and the sidebar meanwhile.
 		/// </summary>
-		private void SwapWindows(Scene scene, bool animate)
+		private void SwapWindows(Scene scene, bool animate, IWindow? activated)
 		{
 			// what an earlier switch did not do yet is left undone, the stage is set from the windows as they are now
 			_animator.Interrupt();
 
+			// Windows restores a window activated with Alt+Tab or the taskbar itself, it does not fly
 			var leaving = GetSceneableWindows().Except(scene.Windows).Where(w => !w.IsMinimized).ToArray();
-			var coming = scene.Windows.Where(w => w.IsMinimized).ToArray();
+			var coming = scene.Windows.Where(w => w.IsMinimized && w.Handle != activated?.Handle).ToArray();
 
 			DebugLog.Write($"On stage: {string.Join(", ", scene.Windows.Select(DebugLog.Describe))}, coming: {coming.Length}, leaving: {leaving.Length}");
 
@@ -177,7 +179,7 @@ namespace StageManager
 
 			if (animate && Animations && (leaving.Length > 0 || coming.Length > 0))
 			{
-				_animator.Animate(leaving, coming, scene, hide, show);
+				_animator.Animate(leaving, coming, scene, activated?.Handle ?? IntPtr.Zero, hide, show);
 			}
 			else
 			{
@@ -652,7 +654,7 @@ namespace StageManager
 				return;
 			}
 
-			await SwitchTo(scene);
+			await SwitchTo(scene, animate: true, activated: window);
 		}
 
 		/// <summary>
@@ -667,7 +669,10 @@ namespace StageManager
 		}
 
 		/// <param name="animate">False to switch without letting the windows fly, like when Stage Manager starts</param>
-		public async Task SwitchTo(Scene? scene, bool animate = true)
+		public Task SwitchTo(Scene? scene, bool animate = true) => SwitchTo(scene, animate, activated: null);
+
+		/// <param name="activated">The window whose activation causes the switch</param>
+		private async Task SwitchTo(Scene? scene, bool animate, IWindow? activated)
 		{
 			if (object.Equals(scene, _current))
 				return;
@@ -698,7 +703,7 @@ namespace StageManager
 					s.IsSelected = s.Equals(scene);
 
 				if (scene is not null)
-					BringOnStage(scene, animate);
+					BringOnStage(scene, animate, activated);
 				else
 					ShowDesktop();
 
@@ -716,9 +721,10 @@ namespace StageManager
 		}
 
 		/// <summary>
-		/// Windows without title are mostly helper windows of apps that should not show up as scenes.
+		/// Windows without title are mostly helper windows of apps that should not show up as scenes,
+		/// just like windows the user can't see although Windows considers them visible.
 		/// </summary>
-		private static bool HasWindowContent(IWindow window) => !string.IsNullOrEmpty(window.ProcessFileName) && !string.IsNullOrEmpty(window.Title);
+		private static bool HasWindowContent(IWindow window) => !string.IsNullOrEmpty(window.ProcessFileName) && !string.IsNullOrEmpty(window.Title) && WindowVisibility.CanBeSeen(window);
 
 		private bool IsSceneable(IWindow window) => HasWindowContent(window) && !IsPinned(window);
 

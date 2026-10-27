@@ -30,9 +30,10 @@ namespace StageManager
 		/// Lets the leaving windows fly into the sidebar and the coming ones out of it
 		/// </summary>
 		/// <param name="slot">The scene whose place in the sidebar the windows of the current scene take</param>
+		/// <param name="front">A window Windows brought to the front already, like with Alt+Tab. The windows fly behind it.</param>
 		/// <param name="hide">Minimizes the leaving windows, called once they are covered by their pictures</param>
 		/// <param name="show">Restores the coming windows, called once their pictures arrived</param>
-		void Animate(IReadOnlyCollection<IWindow> leaving, IReadOnlyCollection<IWindow> coming, Scene slot, Action hide, Action show);
+		void Animate(IReadOnlyCollection<IWindow> leaving, IReadOnlyCollection<IWindow> coming, Scene slot, IntPtr front, Action hide, Action show);
 
 		/// <summary>
 		/// Stops the windows flying. Hiding and showing is left undone if it did not happen yet,
@@ -84,7 +85,7 @@ namespace StageManager
 
 		public bool IsRunning => _run is not null;
 
-		public void Animate(IReadOnlyCollection<IWindow> leaving, IReadOnlyCollection<IWindow> coming, Scene slot, Action hide, Action show)
+		public void Animate(IReadOnlyCollection<IWindow> leaving, IReadOnlyCollection<IWindow> coming, Scene slot, IntPtr front, Action hide, Action show)
 		{
 			Interrupt();
 
@@ -92,7 +93,7 @@ namespace StageManager
 
 			try
 			{
-				run = Prepare(leaving, coming, slot, hide, show);
+				run = Prepare(leaving, coming, slot, front, hide, show);
 			}
 			catch (Exception ex)
 			{
@@ -117,7 +118,7 @@ namespace StageManager
 				End(run);
 		}
 
-		private Run? Prepare(IReadOnlyCollection<IWindow> leaving, IReadOnlyCollection<IWindow> coming, Scene slot, Action hide, Action show)
+		private Run? Prepare(IReadOnlyCollection<IWindow> leaving, IReadOnlyCollection<IWindow> coming, Scene slot, IntPtr front, Action hide, Action show)
 		{
 			foreach (var closed in _departures.Keys.Where(h => !Win32.IsWindow(h)).ToArray())
 				_departures.Remove(closed);
@@ -160,7 +161,7 @@ namespace StageManager
 			// shown first, WPF may place the window when showing it
 			var overlay = _overlay ??= new Overlay();
 			overlay.Show();
-			overlay.Cover(area);
+			overlay.Cover(area, front);
 
 			var run = new Run(flights, area.TopLeft, hide, show);
 
@@ -500,7 +501,7 @@ namespace StageManager
 		}
 
 		/// <summary>
-		/// A transparent window on top of all others that the thumbnails fly on. Clicks go through it.
+		/// A transparent window that the thumbnails fly on, on top of the windows. Clicks go through it.
 		/// </summary>
 		private sealed class Overlay : Window
 		{
@@ -523,7 +524,6 @@ namespace StageManager
 				ResizeMode = ResizeMode.NoResize;
 				ShowInTaskbar = false;
 				ShowActivated = false;
-				Topmost = true;
 				Title = "Stage Manager animation";
 				Width = 1;
 				Height = 1;
@@ -546,11 +546,14 @@ namespace StageManager
 			}
 
 			/// <summary>
-			/// Places the overlay over the given area of the screens, in physical pixels
+			/// Places the overlay over the given area of the screens, in physical pixels.
+			/// It lies on top of all windows, or right behind the given one.
 			/// </summary>
-			public void Cover(Rect area)
+			public void Cover(Rect area, IntPtr behind)
 			{
-				SetWindowPos(Handle, HWND_TOPMOST, (int)area.Left, (int)area.Top, (int)area.Width, (int)area.Height, SWP_NOACTIVATE);
+				// placed after a window that is not topmost, the overlay is no longer topmost either
+				var insertAfter = behind != IntPtr.Zero && Win32.IsWindow(behind) ? behind : HWND_TOPMOST;
+				SetWindowPos(Handle, insertAfter, (int)area.Left, (int)area.Top, (int)area.Width, (int)area.Height, SWP_NOACTIVATE);
 			}
 
 			private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
