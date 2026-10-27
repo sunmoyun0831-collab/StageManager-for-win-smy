@@ -1,12 +1,12 @@
 ﻿# Stage Manager for Windows
 
-This is an experimental approach to bring the macOS [Stage Manager](https://support.apple.com/en-us/HT213315) to Microsoft Windows.
+Brings the macOS [Stage Manager](https://support.apple.com/en-us/HT213315) to Windows 11: apps are grouped into stages, the other stages wait as tilted cards in a sidebar on the left and switching between them lets the windows fly, while Alt+Tab, the taskbar and snap layouts keep working.
 
-> **Important:** This is a prototype and a feasibility study - I am not actively developing this project at the moment but I'd be happy to review and merge pull requests. 
+> Based on the prototype [awaescher/StageManager](https://github.com/awaescher/StageManager) by Andreas Wäscher (MIT license), continued here with a focus on robustness and on what macOS does.
 
 ![Stage Manager](media/StageManager%20Basics.gif)
 
-This prototype groups applications by their process. By switching between so called "scenes" on the left, Stage Manager hides other windows and the desktop icons, helping you to focus.
+Stage Manager groups applications by their process. By switching between so called "scenes" on the left, Stage Manager hides the other windows, helping you to focus.
 
 ## Usage
 
@@ -26,7 +26,6 @@ To quit, find the app's tray icon (Windows might move it into the overflow menu)
  - **Drag files to an app in another scene** by moving the drag to the left screen edge and holding it over the scene for a moment. Stage Manager switches to that scene and the file can be dropped on the app.
  - The sidebar slides away while windows overlap it and comes back when the mouse touches the left screen edge.
  - Windows of other scenes are minimized, so Alt+Tab and the taskbar work as usual. When switching scenes, the windows fly into the sidebar and out of it, like on macOS (can be turned off in the tray menu). The sidebar shows them as they looked when they left the stage.
- - Experimental, from the tray menu: windows of other scenes are not minimized but wait behind a backdrop showing the wallpaper, so maximized or snapped windows stay as they are. Clicking the wallpaper shows the desktop then (can be turned off as well).
 
 Pinned apps, combined scenes and the tray menu settings are stored in `%APPDATA%\StageManager\settings.json`. Errors are written to `error.log` in the same folder.
  

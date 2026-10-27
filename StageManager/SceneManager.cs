@@ -17,7 +17,6 @@ namespace StageManager
 		private readonly Desktop _desktop;
 		private readonly SettingsStore _settingsStore;
 		private readonly AppSettings _settings;
-		private readonly IBackdrop _backdrop;
 		private readonly IStageAnimator _animator;
 		private readonly List<Scene> _recentScenes = new List<Scene>();
 		private readonly HashSet<string> _pinnedApps;
@@ -49,11 +48,10 @@ namespace StageManager
 
 		public WindowsManager WindowsManager { get; }
 
-		public SceneManager(WindowsManager windowsManager, SettingsStore settingsStore, IBackdrop backdrop, IStageAnimator animator)
+		public SceneManager(WindowsManager windowsManager, SettingsStore settingsStore, IStageAnimator animator)
 		{
 			WindowsManager = windowsManager ?? throw new ArgumentNullException(nameof(windowsManager));
 			_settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
-			_backdrop = backdrop ?? throw new ArgumentNullException(nameof(backdrop));
 			_animator = animator ?? throw new ArgumentNullException(nameof(animator));
 			_settings = settingsStore.Load();
 			_pinnedApps = new HashSet<string>(_settings.PinnedApps, StringComparer.OrdinalIgnoreCase);
@@ -97,9 +95,6 @@ namespace StageManager
 
 			MinimizeAnimation.Restore();
 
-			// the windows behind the backdrop show up again once it is gone
-			_backdrop.HideFromAnyThread();
-
 			WindowsManager.Stop();
 
 			IWindow[] hiddenWindows;
@@ -122,42 +117,20 @@ namespace StageManager
 		}
 
 		/// <summary>
-		/// Takes windows off the stage by minimizing them or by putting them behind the backdrop, where they keep running.
-		/// Without a stage (in the desktop view) they are minimized in any case.
+		/// Takes windows off the stage by minimizing them
 		/// </summary>
 		private void MoveOffStage(IReadOnlyCollection<IWindow> windows)
 		{
 			DebugLog.Write($"Off stage: {string.Join(", ", windows.Select(DebugLog.Describe))}");
-
-			if (HideMode == HideMode.Minimize || !_backdrop.IsVisible)
-			{
-				HideWindows(windows);
-				return;
-			}
-
-			foreach (var window in windows)
-				_backdrop.PutBehind(window.Handle);
-
-			WindowSnapshots.CaptureInBackground(windows);
-		}
-
-		/// <summary>
-		/// Shows the windows of the scene and the pinned windows, all other windows get out of the way
-		/// </summary>
-		/// <param name="activated">The window whose activation caused the switch, Windows brings it to the front on its own</param>
-		private void BringOnStage(Scene scene, bool animate = true, IWindow? activated = null)
-		{
-			if (HideMode == HideMode.Minimize)
-				SwapWindows(scene, animate, activated);
-			else
-				ArrangeOnBackdrop(scene);
+			HideWindows(windows);
 		}
 
 		/// <summary>
 		/// Restores the windows of the scene and minimizes all others, which works with Alt+Tab and the taskbar.
-		/// The windows fly between the stage and the sidebar meanwhile.
+		/// The windows fly between the stage and the sidebar meanwhile. Pinned windows are left alone.
 		/// </summary>
-		private void SwapWindows(Scene scene, bool animate, IWindow? activated)
+		/// <param name="activated">The window whose activation caused the switch, Windows brings it to the front on its own</param>
+		private void BringOnStage(Scene scene, bool animate = true, IWindow? activated = null)
 		{
 			// what an earlier switch did not do yet is left undone, the stage is set from the windows as they are now
 			_animator.Interrupt();
@@ -189,38 +162,11 @@ namespace StageManager
 		}
 
 		/// <summary>
-		/// Puts the windows of the scene and the pinned windows in front of the backdrop, all other windows end up behind it
-		/// </summary>
-		private void ArrangeOnBackdrop(Scene scene)
-		{
-			// windows minimized by the desktop view or by the user come back with their scene
-			foreach (var window in scene.Windows)
-				ShowWindow(window);
-
-			try
-			{
-				if (!_backdrop.IsVisible)
-					_backdrop.Show();
-
-				var front = scene.Windows.Concat(GetPinnedWindows()).Select(w => w.Handle).ToArray();
-				DebugLog.Write($"On stage: {DebugLog.Describe(front)}");
-				_backdrop.Arrange(front);
-			}
-			catch (Exception ex)
-			{
-				// switching scenes has to work anyway, the old way is to minimize the other windows
-				App.Log(ex);
-				HideWindows(GetSceneableWindows().Except(scene.Windows).ToArray());
-			}
-		}
-
-		/// <summary>
 		/// The desktop lies behind all windows, so they have to be minimized to show it
 		/// </summary>
 		private void ShowDesktop()
 		{
 			_animator.Interrupt();
-			_backdrop.Hide();
 			HideWindows(GetSceneableWindows().ToArray());
 		}
 
@@ -493,7 +439,7 @@ namespace StageManager
 				return;
 			}
 
-			// a dialog of an app behind the backdrop comes in front when it gets activated, its app has to come along
+			// a dialog of a minimized app can come up on its own when it gets activated, its app has to come along
 			var owner = Win32.GetAncestor(e, Win32.GA.GA_ROOTOWNER);
 			if (owner != e && WindowsManager.Windows.FirstOrDefault(w => w.Handle == owner) is IWindow ownerWindow)
 				SwitchToSceneByWindow(ownerWindow).SafeFireAndForget();
@@ -568,8 +514,6 @@ namespace StageManager
 
 			if (next is not null)
 				await SwitchTo(next);
-			else
-				_backdrop.Hide();
 		}
 
 		public Scene FindSceneForWindow(IWindow window) => FindSceneForWindow(window.Handle);
@@ -620,7 +564,7 @@ namespace StageManager
 			AddToScene(window);
 
 			// A new window usually gets activated right after it was shown, which switches to its scene.
-			// Windows that open in the background must not pull the user out of the current scene, so they go behind the backdrop.
+			// Windows that open in the background must not pull the user out of the current scene, so they are minimized.
 			// Without a current scene there is no stage to keep clean.
 			await Task.Delay(NEW_WINDOW_ACTIVATION_DELAY_MILLISECONDS).ConfigureAwait(true);
 
@@ -708,11 +652,6 @@ namespace StageManager
 					ShowDesktop();
 
 				CurrentSceneSelectionChanged?.Invoke(this, new CurrentSceneSelectionChangedEventArgs(prior, _current));
-
-				// the windows that left the stage keep running behind the backdrop, so the pictures don't hold up the switch.
-				// Minimized windows got their pictures taken right before.
-				if (prior is not null && scene is not null && HideMode == HideMode.Backdrop)
-					WindowSnapshots.CaptureInBackground(prior.Windows.ToArray());
 			}
 			finally
 			{
@@ -749,52 +688,6 @@ namespace StageManager
 		public IEnumerable<IWindow> GetVisibleWindows() => (_current?.Windows ?? GetSceneableWindows()).Concat(GetPinnedWindows());
 
 		private IEnumerable<IWindow> GetPinnedWindows() => WindowsManager.Windows.Where(w => HasWindowContent(w) && IsPinned(w));
-
-		/// <summary>
-		/// macOS shows the desktop when the wallpaper is clicked, this can be turned off
-		/// </summary>
-		public bool ClickWallpaperShowsDesktop
-		{
-			get => _settings.ClickWallpaperShowsDesktop;
-			set
-			{
-				_settings.ClickWallpaperShowsDesktop = value;
-				SaveSettings();
-			}
-		}
-
-		/// <summary>
-		/// How the windows of the other scenes get out of the way. Changing it rearranges the windows right away.
-		/// </summary>
-		public HideMode HideMode
-		{
-			get => _settings.HideMode;
-			set
-			{
-				if (value == _settings.HideMode)
-					return;
-
-				_settings.HideMode = value;
-				SaveSettings();
-
-				DebugLog.Write($"Hide mode: {value}");
-
-				if (value == HideMode.Minimize)
-				{
-					// the windows behind the backdrop would come out once it is gone
-					_backdrop.Hide();
-
-					if (_current is not null)
-						HideWindows(GetSceneableWindows().Except(_current.Windows).ToArray());
-				}
-				else if (_current is not null)
-				{
-					// minimized windows stay minimized until their scene comes on stage, from then on they stay behind the backdrop
-					_animator.Interrupt();
-					ArrangeOnBackdrop(_current);
-				}
-			}
-		}
 
 		/// <summary>
 		/// Windows fly between the stage and the sidebar when switching scenes, only if they are minimized

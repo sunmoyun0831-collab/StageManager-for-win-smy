@@ -300,45 +300,60 @@
                         Opened="ContextMenu_Opened"
                         Closed="ContextMenu_Closed">
                         <MenuItem
+                            Header="Stage Manager"
+                            Style="{StaticResource Menu.Title}" />
+                        <MenuItem
                             x:Name="pinnedAppsMenu"
-                            Header="Pinned apps (always visible)" />
+                            Header="Pinned apps">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xE718;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
                         <Separator />
                         <MenuItem
-                            x:Name="minimizeModeMenuItem"
-                            Header="Hide other windows by minimizing them (works with Alt+Tab)"
-                            IsCheckable="True"
-                            Click="MenuItem_HideMode_Click" />
-                        <MenuItem
-                            x:Name="backdropModeMenuItem"
-                            Header="Hide other windows behind the wallpaper (experimental)"
-                            IsCheckable="True"
-                            Click="MenuItem_HideMode_Click" />
-                        <MenuItem
                             x:Name="animationsMenuItem"
-                            Header="Let windows fly to the sidebar"
+                            Header="Window animations"
                             IsCheckable="True"
-                            Click="MenuItem_Animations_Click" />
-                        <MenuItem
-                            x:Name="wallpaperClickMenuItem"
-                            Header="Click wallpaper to show desktop"
-                            IsCheckable="True"
-                            Click="MenuItem_WallpaperClick_Click" />
+                            StaysOpenOnClick="True"
+                            Click="MenuItem_Animations_Click">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xE945;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
                         <MenuItem
                             Header="Start with Windows"
                             IsCheckable="True"
-                            IsChecked="{Binding StartsWithWindows}" />
+                            StaysOpenOnClick="True"
+                            IsChecked="{Binding StartsWithWindows}">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xE7F4;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
                         <MenuItem
                             x:Name="debugLogMenuItem"
-                            Header="Debug log (for bug reports)"
+                            Header="Debug log for bug reports"
                             IsCheckable="True"
-                            Click="MenuItem_DebugLog_Click" />
-                        <MenuItem
-                            Header="Project page"
-                            Click="MenuItem_ProjectPage_Click" />
+                            StaysOpenOnClick="True"
+                            Click="MenuItem_DebugLog_Click">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xEBE8;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
                         <Separator />
                         <MenuItem
-                            Header="Quit"
-                            Click="MenuItem_Quit_Click" />
+                            Header="Project page"
+                            Click="MenuItem_ProjectPage_Click">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xE774;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem
+                            Header="Quit Stage Manager"
+                            Click="MenuItem_Quit_Click">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xE7E8;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
                     </ContextMenu>
                 </tb:TaskbarIcon.ContextMenu>
             </tb:TaskbarIcon>

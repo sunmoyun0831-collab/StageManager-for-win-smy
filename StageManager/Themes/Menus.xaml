@@ -1,0 +1,278 @@
+<!-- Menus like the ones of Windows 11: rounded, with a soft shadow, light or dark like Windows and switches for options. -->
+<!-- The brushes are set by MenuTheme from the Windows settings, the ones here are the light defaults. -->
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <SolidColorBrush x:Key="Menu.Background" Color="#F9F9F9" />
+    <SolidColorBrush x:Key="Menu.Border" Color="#1F000000" />
+    <SolidColorBrush x:Key="Menu.Foreground" Color="#E4000000" />
+    <SolidColorBrush x:Key="Menu.SecondaryForeground" Color="#9B000000" />
+    <SolidColorBrush x:Key="Menu.DisabledForeground" Color="#5C000000" />
+    <SolidColorBrush x:Key="Menu.Hover" Color="#0F000000" />
+    <SolidColorBrush x:Key="Menu.Pressed" Color="#08000000" />
+    <SolidColorBrush x:Key="Menu.Separator" Color="#14000000" />
+    <SolidColorBrush x:Key="Menu.ToggleOff" Color="#9B000000" />
+    <SolidColorBrush x:Key="Menu.Accent" Color="#005FB8" />
+    <SolidColorBrush x:Key="Menu.OnAccent" Color="#FFFFFF" />
+
+    <FontFamily x:Key="Menu.IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+    <!-- the menu has room around it for the shadow -->
+    <Style TargetType="{x:Type ContextMenu}">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="HasDropShadow" Value="False" />
+        <Setter Property="SnapsToDevicePixels" Value="True" />
+        <Setter Property="UseLayoutRounding" Value="True" />
+        <Setter Property="FontFamily" Value="Segoe UI" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="Foreground" Value="{DynamicResource Menu.Foreground}" />
+        <Setter Property="Grid.IsSharedSizeScope" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ContextMenu}">
+                    <Grid Margin="12">
+                        <Border
+                            CornerRadius="8"
+                            Background="{DynamicResource Menu.Background}">
+                            <Border.Effect>
+                                <DropShadowEffect
+                                    BlurRadius="18"
+                                    ShadowDepth="4"
+                                    Direction="270"
+                                    Opacity="0.22" />
+                            </Border.Effect>
+                        </Border>
+                        <Border
+                            MinWidth="240"
+                            CornerRadius="8"
+                            Background="{DynamicResource Menu.Background}"
+                            BorderBrush="{DynamicResource Menu.Border}"
+                            BorderThickness="1"
+                            Padding="0,4">
+                            <StackPanel
+                                IsItemsHost="True"
+                                KeyboardNavigation.DirectionalNavigation="Cycle" />
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="{x:Type Separator}">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Separator}">
+                    <Border
+                        Height="1"
+                        Margin="0,4"
+                        Background="{DynamicResource Menu.Separator}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- an item with an optional icon on the left, a switch on the right if it can be checked, or an arrow if it has a submenu -->
+    <Style TargetType="{x:Type MenuItem}">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Foreground" Value="{DynamicResource Menu.Foreground}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type MenuItem}">
+                    <Border
+                        x:Name="root"
+                        Margin="4,1"
+                        Padding="12,0,10,0"
+                        MinHeight="34"
+                        CornerRadius="4"
+                        Background="Transparent">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="MenuItemIcon" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="MenuItemTrailing" />
+                            </Grid.ColumnDefinitions>
+                            <ContentPresenter
+                                x:Name="icon"
+                                ContentSource="Icon"
+                                Width="16"
+                                Margin="0,0,12,0"
+                                VerticalAlignment="Center"
+                                TextElement.FontFamily="{StaticResource Menu.IconFont}"
+                                TextElement.FontSize="16" />
+                            <ContentPresenter
+                                Grid.Column="1"
+                                ContentSource="Header"
+                                RecognizesAccessKey="True"
+                                Margin="0,7,16,7"
+                                VerticalAlignment="Center" />
+                            <Border
+                                x:Name="track"
+                                Grid.Column="2"
+                                Width="40"
+                                Height="20"
+                                CornerRadius="10"
+                                BorderThickness="1"
+                                BorderBrush="{DynamicResource Menu.ToggleOff}"
+                                Background="Transparent"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed">
+                                <Ellipse
+                                    x:Name="knob"
+                                    Width="12"
+                                    Height="12"
+                                    Margin="4,0,0,0"
+                                    HorizontalAlignment="Left"
+                                    Fill="{DynamicResource Menu.ToggleOff}" />
+                            </Border>
+                            <TextBlock
+                                x:Name="chevron"
+                                Grid.Column="2"
+                                Text="&#xE76C;"
+                                FontFamily="{StaticResource Menu.IconFont}"
+                                FontSize="12"
+                                VerticalAlignment="Center"
+                                Visibility="Collapsed" />
+                            <Popup
+                                x:Name="PART_Popup"
+                                Placement="Right"
+                                HorizontalOffset="-5"
+                                VerticalOffset="-17"
+                                AllowsTransparency="True"
+                                Focusable="False"
+                                PopupAnimation="Fade"
+                                IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
+                                <Grid
+                                    Margin="12"
+                                    Grid.IsSharedSizeScope="True">
+                                    <Border
+                                        CornerRadius="8"
+                                        Background="{DynamicResource Menu.Background}">
+                                        <Border.Effect>
+                                            <DropShadowEffect
+                                                BlurRadius="18"
+                                                ShadowDepth="4"
+                                                Direction="270"
+                                                Opacity="0.22" />
+                                        </Border.Effect>
+                                    </Border>
+                                    <Border
+                                        MinWidth="220"
+                                        CornerRadius="8"
+                                        Background="{DynamicResource Menu.Background}"
+                                        BorderBrush="{DynamicResource Menu.Border}"
+                                        BorderThickness="1"
+                                        Padding="0,4">
+                                        <ScrollViewer
+                                            MaxHeight="560"
+                                            VerticalScrollBarVisibility="Auto"
+                                            HorizontalScrollBarVisibility="Disabled">
+                                            <StackPanel
+                                                IsItemsHost="True"
+                                                KeyboardNavigation.DirectionalNavigation="Cycle" />
+                                        </ScrollViewer>
+                                    </Border>
+                                </Grid>
+                            </Popup>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="Icon" Value="{x:Null}">
+                            <Setter TargetName="icon" Property="Visibility" Value="Collapsed" />
+                        </Trigger>
+                        <Trigger Property="HasItems" Value="True">
+                            <Setter TargetName="chevron" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsCheckable" Value="True">
+                            <Setter TargetName="track" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="track" Property="Background" Value="{DynamicResource Menu.Accent}" />
+                            <Setter TargetName="track" Property="BorderBrush" Value="{DynamicResource Menu.Accent}" />
+                            <Setter TargetName="knob" Property="Fill" Value="{DynamicResource Menu.OnAccent}" />
+                            <!-- set and animated, so the switch only slides when it is clicked, not when the menu opens -->
+                            <Setter TargetName="knob" Property="Margin" Value="22,0,0,0" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <ThicknessAnimation
+                                            Storyboard.TargetName="knob"
+                                            Storyboard.TargetProperty="Margin"
+                                            To="22,0,0,0"
+                                            Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <ThicknessAnimation
+                                            Storyboard.TargetName="knob"
+                                            Storyboard.TargetProperty="Margin"
+                                            To="4,0,0,0"
+                                            Duration="0:0:0.12" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="IsHighlighted" Value="True">
+                            <Setter TargetName="root" Property="Background" Value="{DynamicResource Menu.Hover}" />
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="root" Property="Background" Value="{DynamicResource Menu.Pressed}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Foreground" Value="{DynamicResource Menu.DisabledForeground}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- a line of text in a menu that explains something, it can't be clicked -->
+    <Style x:Key="Menu.Caption" TargetType="{x:Type MenuItem}">
+        <Setter Property="OverridesDefaultStyle" Value="True" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsHitTestVisible" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type MenuItem}">
+                    <ContentPresenter
+                        ContentSource="Header"
+                        Margin="16,6,16,6"
+                        MaxWidth="280"
+                        HorizontalAlignment="Left"
+                        TextElement.FontSize="12"
+                        TextElement.Foreground="{DynamicResource Menu.SecondaryForeground}">
+                        <ContentPresenter.Resources>
+                            <Style TargetType="{x:Type TextBlock}">
+                                <Setter Property="TextWrapping" Value="Wrap" />
+                            </Style>
+                        </ContentPresenter.Resources>
+                    </ContentPresenter>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- the name of the app at the top of a menu -->
+    <Style x:Key="Menu.Title" TargetType="{x:Type MenuItem}" BasedOn="{StaticResource Menu.Caption}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type MenuItem}">
+                    <ContentPresenter
+                        ContentSource="Header"
+                        Margin="16,8,16,6"
+                        TextElement.FontSize="12"
+                        TextElement.FontWeight="SemiBold"
+                        TextElement.Foreground="{DynamicResource Menu.SecondaryForeground}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+</ResourceDictionary>

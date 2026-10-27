@@ -70,30 +70,27 @@ namespace StageManager.Tests
 		}
 
 		[Fact]
-		public void Windows_Are_Minimized_With_Animations_By_Default()
+		public void Animations_Are_On_By_Default()
 		{
-			// older settings files don't have these values, they must not end up with the backdrop
 			Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
 			File.WriteAllText(SettingsPath, "{ \"PinnedApps\": [\"explorer\"] }");
 
 			var settings = new SettingsStore(SettingsPath).Load();
 
-			Assert.Equal(HideMode.Minimize, settings.HideMode);
 			Assert.True(settings.Animations);
 		}
 
 		[Fact]
-		public void Hide_Mode_Is_Saved_By_Name()
+		public void Settings_Of_The_Backdrop_Version_Still_Load()
 		{
-			var store = new SettingsStore(SettingsPath);
-			store.Save(new AppSettings { HideMode = HideMode.Backdrop, Animations = false });
+			// the backdrop is gone, its settings must not make the file unreadable
+			Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
+			File.WriteAllText(SettingsPath, "{ \"PinnedApps\": [\"explorer\"], \"HideMode\": \"Backdrop\", \"ClickWallpaperShowsDesktop\": false, \"Animations\": false }");
 
-			Assert.Contains("\"Backdrop\"", File.ReadAllText(SettingsPath));
+			var settings = new SettingsStore(SettingsPath).Load();
 
-			var loaded = store.Load();
-
-			Assert.Equal(HideMode.Backdrop, loaded.HideMode);
-			Assert.False(loaded.Animations);
+			Assert.Equal(new[] { "explorer" }, settings.PinnedApps);
+			Assert.False(settings.Animations);
 		}
 	}
 }

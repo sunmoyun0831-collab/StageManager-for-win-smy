@@ -44,6 +44,8 @@ namespace StageManager
 			TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
 			SafeFireAndForgetExtensions.SetDefaultExceptionHandling(Log);
 
+			Themes.MenuTheme.Start(this);
+
 			new MainWindow().Show();
 		}
 

@@ -42,11 +42,7 @@ namespace StageManager
 		private const double EYE_DISTANCE_FACTOR = 0.5;
 		private const int DRAG_HOVER_MILLISECONDS = 600;
 		private const int QUIT_TIMEOUT_MILLISECONDS = 3000;
-
-		/// <summary>
-		/// Slideshows replace the wallpaper without telling anyone
-		/// </summary>
-		private const int WALLPAPER_REFRESH_SECONDS = 60;
+		private const string PROJECT_PAGE = "https://github.com/sunmoyun0831-collab/smy-room";
 		private IntPtr _thisHandle;
 		private TaskPoolGlobalHook _hook;
 		private WindowMode _mode;
@@ -66,8 +62,6 @@ namespace StageManager
 		private volatile bool _isDraggingWindow;
 		private int _dragFeedbackPending;
 		private bool _isQuitting;
-		private BackdropWindow? _backdrop;
-		private DispatcherTimer _wallpaperTimer;
 		private volatile string _quitStep = "";
 		private DispatcherTimer _dragHoverTimer;
 		private SceneModel? _dragHoverScene;
@@ -90,12 +84,8 @@ namespace StageManager
 			_dragHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DRAG_HOVER_MILLISECONDS) };
 			_dragHoverTimer.Tick += DragHoverTimer_Tick;
 
-			_wallpaperTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(WALLPAPER_REFRESH_SECONDS) };
-			_wallpaperTimer.Tick += (_, _) => _backdrop?.ReloadWallpaper();
-
 			DpiChanged += (_, _) => Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
-			Microsoft.Win32.SystemEvents.UserPreferenceChanged += SystemEvents_UserPreferenceChanged;
 
 			SwitchSceneCommand = new ActionCommand(model => OnSceneClicked((SceneModel)model));
 		}
@@ -121,12 +111,6 @@ namespace StageManager
 			Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 		}
 
-		private void SystemEvents_UserPreferenceChanged(object sender, Microsoft.Win32.UserPreferenceChangedEventArgs e)
-		{
-			if (e.Category == Microsoft.Win32.UserPreferenceCategory.Desktop)
-				Dispatcher.BeginInvoke(() => _backdrop?.ReloadWallpaper());
-		}
-
 		protected override void OnClosed(EventArgs e)
 		{
 			_isQuitting = true;
@@ -140,9 +124,7 @@ namespace StageManager
 			RunQuitStep("removing the tray icon", trayIcon.Dispose);
 
 			_overlapCheckTimer.Stop();
-			_wallpaperTimer.Stop();
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
-			Microsoft.Win32.SystemEvents.UserPreferenceChanged -= SystemEvents_UserPreferenceChanged;
 
 			base.OnClosed(e);
 
@@ -190,11 +172,8 @@ namespace StageManager
 
 			_thisHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
-			_backdrop = new BackdropWindow(SidebarScreen) { Sidebar = _thisHandle };
-			_backdrop.Clicked += Backdrop_Clicked;
-
 			var windowsManager = new WindowsManager();
-			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), _backdrop, new StageAnimator(FindCard));
+			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), new StageAnimator(FindCard));
 			App.RestoreState = SceneManager.Stop;
 			await SceneManager.Start().ConfigureAwait(true);
 
@@ -217,19 +196,7 @@ namespace StageManager
 			if (foregroundScene is object)
 				await SceneManager.SwitchTo(foregroundScene, animate: false).ConfigureAwait(true);
 
-			// the pictures for the sidebar, the windows of the other scenes are behind the backdrop now.
-			// Minimized windows got their pictures taken right before.
-			if (SceneManager.HideMode == HideMode.Backdrop)
-				WindowSnapshots.CaptureInBackground(SceneManager.GetScenes().SelectMany(s => s.Windows).ToArray());
-
 			_overlapCheckTimer.Start();
-			_wallpaperTimer.Start();
-		}
-
-		private void Backdrop_Clicked(object? sender, EventArgs e)
-		{
-			if (SceneManager?.ClickWallpaperShowsDesktop == true)
-				SceneManager.SwitchTo(null).SafeFireAndForget();
 		}
 
 		private void WindowSnapshots_Updated(IntPtr handle)
@@ -290,8 +257,6 @@ namespace StageManager
 			_sidebarZone = new Rect(workArea.Left, workArea.Top, Width * dpi.DpiScaleX, workArea.Height);
 			_edgeZone = new Rect(workArea.Left, workArea.Top, EDGE_TRIGGER_WIDTH * dpi.DpiScaleX, workArea.Height);
 			_hasScreenLeftOfSidebar = System.Windows.Forms.Screen.AllScreens.Any(s => s.Bounds.Right <= screen.Bounds.Left && s.Bounds.Bottom > workArea.Top && s.Bounds.Top < workArea.Bottom);
-
-			_backdrop?.UpdateScreen(screen);
 
 			Top = workArea.Top / dpi.DpiScaleY;
 			Height = workArea.Height / dpi.DpiScaleY;
@@ -870,7 +835,7 @@ namespace StageManager
 
 		private void NavigateToProjectPage()
 		{
-			Process.Start(new ProcessStartInfo("https://github.com/awaescher/StageManager")
+			Process.Start(new ProcessStartInfo(PROJECT_PAGE)
 			{
 				UseShellExecute = true
 			});
@@ -903,25 +868,7 @@ namespace StageManager
 			StopHook();
 			FillPinnedAppsMenu();
 			debugLogMenuItem.IsChecked = DebugLog.Enabled;
-
-			if (SceneManager is null)
-				return;
-
-			var usesBackdrop = SceneManager.HideMode == HideMode.Backdrop;
-			minimizeModeMenuItem.IsChecked = !usesBackdrop;
-			backdropModeMenuItem.IsChecked = usesBackdrop;
-
-			// the animation is for minimized windows, the wallpaper can only be clicked with the backdrop
-			animationsMenuItem.IsChecked = SceneManager.Animations;
-			animationsMenuItem.IsEnabled = !usesBackdrop;
-			wallpaperClickMenuItem.IsChecked = SceneManager.ClickWallpaperShowsDesktop;
-			wallpaperClickMenuItem.IsEnabled = usesBackdrop;
-		}
-
-		private void MenuItem_HideMode_Click(object sender, RoutedEventArgs e)
-		{
-			if (SceneManager is not null)
-				SceneManager.HideMode = sender == backdropModeMenuItem ? HideMode.Backdrop : HideMode.Minimize;
+			animationsMenuItem.IsChecked = SceneManager?.Animations ?? true;
 		}
 
 		private void MenuItem_Animations_Click(object sender, RoutedEventArgs e)
@@ -939,12 +886,6 @@ namespace StageManager
 				Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{DebugLog.Path}\"") { UseShellExecute = true });
 		}
 
-		private void MenuItem_WallpaperClick_Click(object sender, RoutedEventArgs e)
-		{
-			if (SceneManager is not null)
-				SceneManager.ClickWallpaperShowsDesktop = wallpaperClickMenuItem.IsChecked;
-		}
-
 		private void SceneContextMenu_Opened(object sender, RoutedEventArgs e)
 		{
 			StopHook();
@@ -957,16 +898,20 @@ namespace StageManager
 			if (SceneManager is null)
 				return;
 
-			pinnedAppsMenu.Items.Add(new MenuItem { Header = "Pinned apps are never hidden and don't switch scenes", IsEnabled = false });
-			pinnedAppsMenu.Items.Add(new Separator());
+			pinnedAppsMenu.Items.Add(new MenuItem { Header = "Pinned apps stay visible on every stage and don't switch scenes.", Style = (Style)FindResource("Menu.Caption") });
 
 			foreach (var app in SceneManager.GetApps())
 			{
-				var item = new MenuItem { Header = app.Name, ToolTip = app.Key, IsCheckable = true, IsChecked = app.IsPinned };
+				var item = new MenuItem { Header = app.Name, ToolTip = app.Key, IsCheckable = true, IsChecked = app.IsPinned, StaysOpenOnClick = true };
 				item.Click += (_, _) => SceneManager.SetPinned(app.Key, item.IsChecked);
 				pinnedAppsMenu.Items.Add(item);
 			}
 		}
+
+		/// <summary>
+		/// A symbol of the Windows icon font, see <see cref="Themes.MenuTheme"/>
+		/// </summary>
+		private static TextBlock MenuIcon(string glyph) => new TextBlock { Text = glyph };
 
 		private void Scene_ContextMenuOpening(object sender, ContextMenuEventArgs e)
 		{
@@ -982,7 +927,7 @@ namespace StageManager
 
 			if (SceneManager.CurrentScene is not null)
 			{
-				var add = new MenuItem { Header = "Add to current stage (Shift+Click)" };
+				var add = new MenuItem { Header = "Add to current stage (Shift+Click)", Icon = MenuIcon("\uE710") };
 				add.Click += (_, _) => SceneManager.AddToCurrentScene(model.Scene);
 				menu.Items.Add(add);
 			}
@@ -991,7 +936,7 @@ namespace StageManager
 			{
 				foreach (var app in apps)
 				{
-					var separate = new MenuItem { Header = $"Take {app.Name} out of this stage" };
+					var separate = new MenuItem { Header = $"Take {app.Name} out of this stage", Icon = MenuIcon("\uE738") };
 					separate.Click += (_, _) => SceneManager.SeparateApp(model.Scene, app.Key);
 					menu.Items.Add(separate);
 				}
@@ -1002,7 +947,7 @@ namespace StageManager
 
 			foreach (var app in apps)
 			{
-				var pin = new MenuItem { Header = $"Pin {app.Name} (always visible)" };
+				var pin = new MenuItem { Header = $"Pin {app.Name} (always visible)", Icon = MenuIcon("\uE718") };
 				pin.Click += (_, _) => SceneManager.SetPinned(app.Key, true);
 				menu.Items.Add(pin);
 			}
