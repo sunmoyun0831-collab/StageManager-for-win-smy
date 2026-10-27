@@ -868,7 +868,7 @@ namespace StageManager
 		private void ContextMenu_Opened(object sender, RoutedEventArgs e)
 		{
 			StopHook();
-			FillPinnedAppsMenu();
+			FillAppMenus();
 			debugLogMenuItem.IsChecked = DebugLog.Enabled;
 			animationsMenuItem.IsChecked = SceneManager?.Animations ?? true;
 		}
@@ -893,20 +893,39 @@ namespace StageManager
 			StopHook();
 		}
 
-		private void FillPinnedAppsMenu()
+		/// <summary>
+		/// Lists the apps with a switch each, to pin them or to exclude them from Stage Manager
+		/// </summary>
+		private void FillAppMenus()
 		{
 			pinnedAppsMenu.Items.Clear();
+			excludedAppsMenu.Items.Clear();
 
 			if (SceneManager is null)
 				return;
 
-			pinnedAppsMenu.Items.Add(new MenuItem { Header = "Pinned apps stay visible on every stage and don't switch scenes.", Style = (Style)FindResource("Menu.Caption") });
+			pinnedAppsMenu.Items.Add(new MenuItem { Header = "Pinned apps stay visible on every stage and don't switch stages.", Style = (Style)FindResource("Menu.Caption") });
+			excludedAppsMenu.Items.Add(new MenuItem { Header = "Stage Manager leaves excluded apps alone: their windows are neither hidden nor shown and are on no stage. Good for apps that run in the background.", Style = (Style)FindResource("Menu.Caption") });
 
 			foreach (var app in SceneManager.GetApps())
 			{
-				var item = new MenuItem { Header = app.Name, ToolTip = app.Key, IsCheckable = true, IsChecked = app.IsPinned, StaysOpenOnClick = true };
-				item.Click += (_, _) => SceneManager.SetPinned(app.Key, item.IsChecked);
-				pinnedAppsMenu.Items.Add(item);
+				var pin = new MenuItem { Header = app.Name, ToolTip = app.Key, IsCheckable = true, IsChecked = app.IsPinned, StaysOpenOnClick = true };
+				var exclude = new MenuItem { Header = app.Name, ToolTip = app.Key, IsCheckable = true, IsChecked = app.IsExcluded, StaysOpenOnClick = true };
+
+				// an app is either pinned or excluded
+				pin.Click += (_, _) =>
+				{
+					SceneManager.SetPinned(app.Key, pin.IsChecked);
+					exclude.IsChecked = SceneManager.IsExcluded(app.Key);
+				};
+				exclude.Click += (_, _) =>
+				{
+					SceneManager.SetExcluded(app.Key, exclude.IsChecked);
+					pin.IsChecked = SceneManager.IsPinned(app.Key);
+				};
+
+				pinnedAppsMenu.Items.Add(pin);
+				excludedAppsMenu.Items.Add(exclude);
 			}
 		}
 
@@ -952,6 +971,13 @@ namespace StageManager
 				var pin = new MenuItem { Header = $"Pin {app.Name} (always visible)", Icon = MenuIcon("\uE718") };
 				pin.Click += (_, _) => SceneManager.SetPinned(app.Key, true);
 				menu.Items.Add(pin);
+			}
+
+			foreach (var app in apps)
+			{
+				var exclude = new MenuItem { Header = $"Exclude {app.Name} from Stage Manager", Icon = MenuIcon("\uED1A") };
+				exclude.Click += (_, _) => SceneManager.SetExcluded(app.Key, true);
+				menu.Items.Add(exclude);
 			}
 		}
 	}

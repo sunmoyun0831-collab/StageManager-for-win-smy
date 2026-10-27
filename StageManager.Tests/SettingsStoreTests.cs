@@ -23,6 +23,7 @@ namespace StageManager.Tests
 			var settings = new SettingsStore(SettingsPath).Load();
 
 			Assert.Empty(settings.PinnedApps);
+			Assert.Empty(settings.ExcludedApps);
 			Assert.Empty(settings.AppGroups);
 			Assert.Null(settings.DesktopIconsVisibleBeforeStart);
 		}
@@ -34,6 +35,7 @@ namespace StageManager.Tests
 			store.Save(new AppSettings
 			{
 				PinnedApps = { "explorer" },
+				ExcludedApps = { "LCore" },
 				AppGroups = { new() { "Code", "chrome" } },
 				DesktopIconsVisibleBeforeStart = true
 			});
@@ -41,6 +43,7 @@ namespace StageManager.Tests
 			var loaded = store.Load();
 
 			Assert.Equal(new[] { "explorer" }, loaded.PinnedApps);
+			Assert.Equal(new[] { "LCore" }, loaded.ExcludedApps);
 			Assert.Equal(new[] { "Code", "chrome" }, loaded.AppGroups.Single());
 			Assert.True(loaded.DesktopIconsVisibleBeforeStart);
 			Assert.False(File.Exists(SettingsPath + ".tmp"));
@@ -61,11 +64,12 @@ namespace StageManager.Tests
 		public void Null_Lists_In_File_Load_As_Empty()
 		{
 			Directory.CreateDirectory(Path.GetDirectoryName(SettingsPath)!);
-			File.WriteAllText(SettingsPath, "{ \"PinnedApps\": null, \"AppGroups\": null }");
+			File.WriteAllText(SettingsPath, "{ \"PinnedApps\": null, \"ExcludedApps\": null, \"AppGroups\": null }");
 
 			var settings = new SettingsStore(SettingsPath).Load();
 
 			Assert.NotNull(settings.PinnedApps);
+			Assert.NotNull(settings.ExcludedApps);
 			Assert.NotNull(settings.AppGroups);
 		}
 

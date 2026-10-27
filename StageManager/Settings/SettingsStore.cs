@@ -31,6 +31,7 @@ namespace StageManager.Settings
 
 				var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(Path), _jsonOptions) ?? new AppSettings();
 				settings.PinnedApps ??= new();
+				settings.ExcludedApps ??= new();
 				settings.AppGroups ??= new();
 				return settings;
 			}

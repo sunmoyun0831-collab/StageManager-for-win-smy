@@ -310,6 +310,13 @@
                                 <TextBlock Text="&#xE718;" />
                             </MenuItem.Icon>
                         </MenuItem>
+                        <MenuItem
+                            x:Name="excludedAppsMenu"
+                            Header="Excluded apps">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xED1A;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
                         <Separator />
                         <MenuItem
                             x:Name="animationsMenuItem"

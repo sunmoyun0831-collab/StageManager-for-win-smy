@@ -21,6 +21,7 @@ Windows SmartScreen may warn about the unsigned exe: click *More info* → *Run 
 - **Fly animation** – windows shrink into the sidebar and come out of it, smoothly drawn by the graphics card. Can be turned off.
 - **Several apps per stage** – drag a card onto the stage or Shift+click it to add its apps to the current stage, then arrange them with snap layouts. Drag a window onto the sidebar to take its app out again, or onto another card to move it there. Stages are remembered.
 - **Pinned apps** – a file manager on a second screen or a music player stays visible on every stage and never switches stages.
+- **Excluded apps** – apps that run in the background, like the windows of tray apps, can be left out entirely: Stage Manager neither hides nor shows them.
 - **Drag files between stages** – hold a dragged file over a card for a moment, the stage opens and the file can be dropped on its apps.
 - **macOS sidebar** – tilted cards that share one perspective, a stack of up to three windows per stage, cards turn to you on hover. Windows may reach into the sidebar, it only slides away once a window covers more than half of the cards and comes back at the left screen edge.
 - **Light and dark** – the menus look like Windows 11 menus and follow the Windows theme and accent color.
@@ -34,7 +35,7 @@ This project continues the prototype [awaescher/StageManager](https://github.com
 | Sidebar | flat live thumbnails | tilted 3D cards with one shared perspective, window stacks, hover effect |
 | Switching | windows minimize and restore with the Windows animation | windows fly between stage and sidebar, Alt+Tab and taskbar switch stages too |
 | Apps per stage | one app per stage | several apps per stage, remembered across restarts |
-| Pinning | – | pinned apps stay visible on every stage |
+| Pinning | – | pinned apps stay visible on every stage, excluded apps are left alone |
 | Drag and drop | – | hold dragged files over a card to open its stage |
 | Sidebar hiding | hides when a window touches it | hides only when a window covers more than half of the cards |
 | Quitting | could hang and leave windows minimized | always brings all windows back, also after a crash, and never hangs |
@@ -46,7 +47,7 @@ This project continues the prototype [awaescher/StageManager](https://github.com
 ## Tips
 
 - **Shift+click** a card adds its apps to the current stage, **right-click** a card for more.
-- The tray menu has *Pinned apps*, *Window animations*, *Start with Windows* and a *Debug log* that helps with bug reports.
+- The tray menu has *Pinned apps*, *Excluded apps*, *Window animations*, *Start with Windows* and a *Debug log* that helps with bug reports.
 - Errors are written to `%APPDATA%\StageManager\error.log`.
 
 ## Known limitations
@@ -85,13 +86,14 @@ exe 没有数字签名，SmartScreen 可能会拦：点「更多信息」→「�
 - **飞行动画**：窗口缩小飞进侧栏、从侧栏飞出，由显卡绘制，流畅不卡；可在托盘里关闭。
 - **一个舞台放多个应用**：把卡片拖到舞台上或 Shift+点击，就能把它的应用加入当前舞台，再用贴靠布局并排；把窗口拖回侧栏可拆出来。分组会被记住。
 - **固定应用**：比如放在副屏的文件管理器，在所有舞台都保持可见，也不会触发切换。
+- **排除应用**：在后台运行的程序（比如托盘软件的窗口）可以完全排除，Stage Manager 既不隐藏也不显示它们。
 - **跨舞台拖文件**：拖着文件在卡片上停一会儿，就会切到那个舞台，直接松手放下。
 - **macOS 式侧栏**：统一透视的倾斜卡片、最多三层的窗口堆叠、悬停时卡片转向你；窗口挡住一半以上卡片时侧栏才收起，鼠标碰到屏幕左边缘再滑出来。
 - **深浅色**：菜单是 Windows 11 风格，跟随系统深浅色和强调色。
 
 ### 相比原作者的改动
 
-本项目基于 Andreas Wäscher 的原型 [awaescher/StageManager](https://github.com/awaescher/StageManager)（MIT 许可）继续开发。原型只有实时缩略图和基本的点击切换，这里加入了：倾斜 3D 卡片和统一透视、飞行动画、Alt+Tab/任务栏切换、一个舞台多个应用、固定应用、拖文件切换舞台、侧栏只在被挡住一半以上时收起、退出和崩溃时一定恢复所有窗口且不会卡死、高分屏（如 4K 150%）下清晰准确、忽略卡死程序的幽灵窗口和软件的隐藏辅助窗口、设置自动保存、Windows 11 风格托盘菜单、以及可直接下载的单文件 exe。
+本项目基于 Andreas Wäscher 的原型 [awaescher/StageManager](https://github.com/awaescher/StageManager)（MIT 许可）继续开发。原型只有实时缩略图和基本的点击切换，这里加入了：倾斜 3D 卡片和统一透视、飞行动画、Alt+Tab/任务栏切换、一个舞台多个应用、固定应用和排除应用、拖文件切换舞台、侧栏只在被挡住一半以上时收起、退出和崩溃时一定恢复所有窗口且不会卡死、高分屏（如 4K 150%）下清晰准确、忽略卡死程序的幽灵窗口和软件的隐藏辅助窗口、设置自动保存、Windows 11 风格托盘菜单、以及可直接下载的单文件 exe。
 
 ### 已知限制
 

@@ -20,6 +20,7 @@ namespace StageManager
 		private readonly IStageAnimator _animator;
 		private readonly List<Scene> _recentScenes = new List<Scene>();
 		private readonly HashSet<string> _pinnedApps;
+		private readonly HashSet<string> _excludedApps;
 		private readonly AppGroups _appGroups;
 		private readonly HashSet<IWindow> _hiddenWindows = new HashSet<IWindow>();
 		private readonly object _hiddenWindowsLock = new object();
@@ -55,6 +56,7 @@ namespace StageManager
 			_animator = animator ?? throw new ArgumentNullException(nameof(animator));
 			_settings = settingsStore.Load();
 			_pinnedApps = new HashSet<string>(_settings.PinnedApps, StringComparer.OrdinalIgnoreCase);
+			_excludedApps = new HashSet<string>(_settings.ExcludedApps, StringComparer.OrdinalIgnoreCase);
 			_appGroups = new AppGroups(_settings.AppGroups);
 			_desktop = new Desktop();
 
@@ -227,10 +229,13 @@ namespace StageManager
 			if (!changed)
 				return;
 
-			_settings.PinnedApps = _pinnedApps.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
-			SaveSettings();
+			// an app is either pinned or excluded
+			if (pinned)
+				_excludedApps.Remove(appKey);
 
-			var appWindows = WindowsManager.Windows.Where(w => string.Equals(GetWindowGroupKey(w), appKey, StringComparison.OrdinalIgnoreCase)).ToArray();
+			SaveAppLists();
+
+			var appWindows = GetAppWindows(appKey);
 
 			if (pinned)
 			{
@@ -257,29 +262,88 @@ namespace StageManager
 			}
 		}
 
+		public bool IsExcluded(IWindow window) => IsExcluded(GetWindowGroupKey(window));
+
+		public bool IsExcluded(string appKey) => _excludedApps.Contains(appKey);
+
 		/// <summary>
-		/// Lists the apps with visible windows plus the pinned ones that are not running.
+		/// Excluded apps are left alone: Stage Manager neither hides nor shows their windows, they are in no scene
+		/// and focusing them does not switch scenes. Meant for apps that keep windows in the background, like tray apps.
+		/// </summary>
+		public void SetExcluded(string appKey, bool excluded)
+		{
+			var changed = excluded ? _excludedApps.Add(appKey) : _excludedApps.Remove(appKey);
+			if (!changed)
+				return;
+
+			// an app is either pinned or excluded
+			if (excluded)
+				_pinnedApps.Remove(appKey);
+
+			SaveAppLists();
+
+			var appWindows = GetAppWindows(appKey);
+
+			if (excluded)
+			{
+				foreach (var window in appWindows)
+				{
+					// the windows stay as they are, also when Stage Manager quits
+					lock (_hiddenWindowsLock)
+						_hiddenWindows.Remove(window);
+
+					if (FindSceneForWindow(window) is Scene scene)
+						RemoveFromScene(scene, window);
+				}
+			}
+			else
+			{
+				// the app takes part again, its windows wait in the sidebar like the ones of apps opened in the background
+				var offStage = new List<IWindow>();
+				foreach (var window in appWindows.Where(IsSceneable))
+				{
+					var scene = AddToScene(window);
+					if (!scene.Equals(_current) && !window.IsMinimized)
+						offStage.Add(window);
+				}
+
+				if (_current is not null && offStage.Count > 0)
+					MoveOffStage(offStage);
+			}
+		}
+
+		private IWindow[] GetAppWindows(string appKey) => WindowsManager.Windows.Where(w => string.Equals(GetWindowGroupKey(w), appKey, StringComparison.OrdinalIgnoreCase)).ToArray();
+
+		private void SaveAppLists()
+		{
+			_settings.PinnedApps = _pinnedApps.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+			_settings.ExcludedApps = _excludedApps.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
+			SaveSettings();
+		}
+
+		/// <summary>
+		/// Lists the apps with visible windows plus the pinned and excluded ones that are not running.
 		/// </summary>
 		public IEnumerable<AppInfo> GetApps()
 		{
 			var runningApps = WindowsManager.Windows
 				.Where(HasWindowContent)
 				.GroupBy(GetWindowGroupKey, StringComparer.OrdinalIgnoreCase)
-				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key)))
+				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key), IsExcluded(group.Key)))
 				.ToList();
 
-			var pinnedAppsNotRunning = _pinnedApps
+			var rememberedAppsNotRunning = _pinnedApps.Concat(_excludedApps)
 				.Where(key => !runningApps.Any(app => string.Equals(app.Key, key, StringComparison.OrdinalIgnoreCase)))
-				.Select(key => new AppInfo(key, key, true));
+				.Select(key => new AppInfo(key, key, IsPinned(key), IsExcluded(key)));
 
-			return runningApps.Concat(pinnedAppsNotRunning).OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase);
+			return runningApps.Concat(rememberedAppsNotRunning).OrderBy(app => app.Name, StringComparer.CurrentCultureIgnoreCase);
 		}
 
 		public IEnumerable<AppInfo> GetApps(Scene scene)
 		{
 			return scene.Windows
 				.GroupBy(GetWindowGroupKey, StringComparer.OrdinalIgnoreCase)
-				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key)));
+				.Select(group => new AppInfo(group.Key, group.First().AppName, IsPinned(group.Key), IsExcluded(group.Key)));
 		}
 
 		public Scene? CurrentScene => _current;
@@ -581,6 +645,12 @@ namespace StageManager
 				return;
 			}
 
+			if (IsExcluded(window))
+			{
+				DebugLog.Write("  excluded, no switch");
+				return;
+			}
+
 			var scene = FindSceneForWindow(window);
 
 			if (scene is null && IsSceneable(window))
@@ -665,7 +735,7 @@ namespace StageManager
 		/// </summary>
 		private static bool HasWindowContent(IWindow window) => !string.IsNullOrEmpty(window.ProcessFileName) && !string.IsNullOrEmpty(window.Title) && WindowVisibility.CanBeSeen(window);
 
-		private bool IsSceneable(IWindow window) => HasWindowContent(window) && !IsPinned(window);
+		private bool IsSceneable(IWindow window) => HasWindowContent(window) && !IsPinned(window) && !IsExcluded(window);
 
 		private IEnumerable<IWindow> GetSceneableWindows() => WindowsManager?.Windows?.Where(IsSceneable);
 

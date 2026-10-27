@@ -10,6 +10,11 @@ namespace StageManager.Settings
 		public List<string> PinnedApps { get; set; } = new List<string>();
 
 		/// <summary>
+		/// Apps (window group keys) Stage Manager leaves alone, like tray apps that keep windows in the background.
+		/// </summary>
+		public List<string> ExcludedApps { get; set; } = new List<string>();
+
+		/// <summary>
 		/// Apps the user combined into one scene, see <see cref="Settings.AppGroups"/>.
 		/// </summary>
 		public List<List<string>> AppGroups { get; set; } = new List<List<string>>();
