@@ -11,6 +11,7 @@ namespace StageManager.Model
 		public event PropertyChangedEventHandler PropertyChanged;
 		private bool _isVisible;
 		private bool _isDropTarget;
+		private bool _needsAttention;
 		private Scene _scene;
 
 		public static SceneModel FromScene(Scene scene)
@@ -135,6 +136,22 @@ namespace StageManager.Model
 				if (_isDropTarget != value)
 				{
 					_isDropTarget = value;
+					RaisePropertyChanged();
+				}
+			}
+		}
+
+		/// <summary>
+		/// Set while an app of the scene wanted to come to the front on its own, until the scene comes on stage
+		/// </summary>
+		public bool NeedsAttention
+		{
+			get => _needsAttention;
+			set
+			{
+				if (_needsAttention != value)
+				{
+					_needsAttention = value;
 					RaisePropertyChanged();
 				}
 			}

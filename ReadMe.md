@@ -22,6 +22,7 @@ Windows SmartScreen may warn about the unsigned exe: click *More info* → *Run 
 - **Several apps per stage** – drag a card onto the stage or Shift+click it to add its apps to the current stage, then arrange them with snap layouts. Drag a window onto the sidebar to take its app out again, or onto another card to move it there. Stages are remembered.
 - **Pinned apps** – a file manager on a second screen or a music player stays visible on every stage and never switches stages.
 - **Excluded apps** – apps that run in the background, like the windows of tray apps, can be left out entirely: Stage Manager neither hides nor shows them.
+- **No interruptions** – an app that brings itself to the front on its own, like an image editor after an export, does not pull you away from your stage. Its card gets a dot and its taskbar button flashes instead. Can be turned off.
 - **Drag files between stages** – hold a dragged file over a card for a moment, the stage opens and the file can be dropped on its apps.
 - **macOS sidebar** – tilted cards that share one perspective, a stack of up to three windows per stage, cards turn to you on hover. Windows may reach into the sidebar, it only slides away once a window covers more than half of the cards and comes back at the left screen edge.
 - **Light and dark** – the menus look like Windows 11 menus and follow the Windows theme and accent color.
@@ -47,7 +48,7 @@ This project continues the prototype [awaescher/StageManager](https://github.com
 ## Tips
 
 - **Shift+click** a card adds its apps to the current stage, **right-click** a card for more.
-- The tray menu has *Pinned apps*, *Excluded apps*, *Window animations*, *Start with Windows* and a *Debug log* that helps with bug reports.
+- The tray menu has *Pinned apps*, *Excluded apps*, *Window animations*, *Apps may switch stages on their own*, *Start with Windows* and a *Debug log* that helps with bug reports.
 - Errors are written to `%APPDATA%\StageManager\error.log`.
 
 ## Known limitations
@@ -87,6 +88,7 @@ exe 没有数字签名，SmartScreen 可能会拦：点「更多信息」→「�
 - **一个舞台放多个应用**：把卡片拖到舞台上或 Shift+点击，就能把它的应用加入当前舞台，再用贴靠布局并排；把窗口拖回侧栏可拆出来。分组会被记住。
 - **固定应用**：比如放在副屏的文件管理器，在所有舞台都保持可见，也不会触发切换。
 - **排除应用**：在后台运行的程序（比如托盘软件的窗口）可以完全排除，Stage Manager 既不隐藏也不显示它们。
+- **不被打断**：程序自己跳到前台（比如修图软件导出完成后）不会把你从当前舞台拉走，只会在它的卡片上显示一个小圆点、任务栏按钮闪烁；可在托盘里关闭。
 - **跨舞台拖文件**：拖着文件在卡片上停一会儿，就会切到那个舞台，直接松手放下。
 - **macOS 式侧栏**：统一透视的倾斜卡片、最多三层的窗口堆叠、悬停时卡片转向你；窗口挡住一半以上卡片时侧栏才收起，鼠标碰到屏幕左边缘再滑出来。
 - **深浅色**：菜单是 Windows 11 风格，跟随系统深浅色和强调色。

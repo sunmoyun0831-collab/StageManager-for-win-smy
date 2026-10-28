@@ -82,6 +82,7 @@ namespace StageManager.Tests
 			var settings = new SettingsStore(SettingsPath).Load();
 
 			Assert.True(settings.Animations);
+			Assert.False(settings.AppsMaySwitchStages);
 		}
 
 		[Fact]

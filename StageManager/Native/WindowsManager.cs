@@ -116,6 +116,15 @@ namespace StageManager.Native
 			_active = false;
 		}
 
+		/// <summary>
+		/// Forgets windows that are gone without Windows telling, so they can't pile up while Stage Manager runs for days
+		/// </summary>
+		public void ForgetClosedWindows()
+		{
+			foreach (var handle in _windows.Keys.Where(h => !Win32.IsWindow(h)).ToArray())
+				UnregisterWindow(handle);
+		}
+
 		public IWindowsDeferPosHandle DeferWindowsPos(int count)
 		{
 			var info = Win32.BeginDeferWindowPos(count);
@@ -210,6 +219,10 @@ namespace StageManager.Native
 			if (handle == _currentProcessWindowHandle)
 				return;
 
+			// apps show tooltips, menus and popups all the time, they are sorted out before looking at their process
+			if (!Win32Helper.IsAppWindow(handle) || !Win32Helper.IsAltTabWindow(handle))
+				return;
+
 			if (!_windows.ContainsKey(handle))
 			{
 				var window = new WindowsWindow(handle);
@@ -277,7 +290,7 @@ namespace StageManager.Native
 				var window = _windows[handle];
 				WindowUpdated?.Invoke(window, type);
 			}
-			else
+			else if (type == WindowUpdateType.Foreground)
 			{
 				UntrackedFocus?.Invoke(this, handle);
 			}

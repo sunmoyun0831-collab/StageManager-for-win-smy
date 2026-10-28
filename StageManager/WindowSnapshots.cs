@@ -15,9 +15,9 @@ namespace StageManager
 	public static class WindowSnapshots
 	{
 		/// <summary>
-		/// Wide enough to stay sharp on a zoomed card at 200% scaling
+		/// Wide enough to stay sharp on a highlighted card (200 units, a bit bigger on hover) at 200% scaling
 		/// </summary>
-		private const int MAX_WIDTH = 640;
+		private const int MAX_WIDTH = 440;
 
 		/// <summary>
 		/// Taking the pictures delays minimizing the windows, don't wait longer for apps that don't respond
@@ -25,6 +25,7 @@ namespace StageManager
 		private const int CAPTURE_TIMEOUT_MILLISECONDS = 300;
 
 		private static readonly ConcurrentDictionary<IntPtr, BitmapSource> _snapshots = new();
+		private static readonly ConcurrentDictionary<IntPtr, byte> _capturing = new();
 
 		[DllImport("user32.dll")]
 		private static extern bool IsWindow(IntPtr hWnd);
@@ -38,6 +39,17 @@ namespace StageManager
 
 		public static void Remove(IntPtr handle) => _snapshots.TryRemove(handle, out _);
 
+		public static int Count => _snapshots.Count;
+
+		/// <summary>
+		/// Drops the pictures of windows that are gone without Stage Manager noticing
+		/// </summary>
+		public static void ForgetClosedWindows()
+		{
+			foreach (var handle in _snapshots.Keys.Where(h => !IsWindow(h)).ToArray())
+				_snapshots.TryRemove(handle, out _);
+		}
+
 		/// <summary>
 		/// Takes pictures of all windows at once and waits for them a limited time
 		/// </summary>
@@ -46,7 +58,21 @@ namespace StageManager
 			if (windows.Length == 0)
 				return;
 
-			var captures = windows.Select(w => Task.Run(() => (w.Handle, Snapshot: WindowCapture.Capture(w, MAX_WIDTH)))).ToArray();
+			// a window that is slow to draw keeps its capture busy, don't pile up more of them
+			var captures = windows
+				.Where(w => _capturing.TryAdd(w.Handle, 0))
+				.Select(w => Task.Run(() =>
+				{
+					try
+					{
+						return (w.Handle, Snapshot: WindowCapture.Capture(w, MAX_WIDTH));
+					}
+					finally
+					{
+						_capturing.TryRemove(w.Handle, out _);
+					}
+				}))
+				.ToArray();
 
 			try
 			{

@@ -52,12 +52,38 @@ namespace StageManager.Native
 		[DllImport("gdi32.dll")]
 		private static extern bool StretchBlt(IntPtr hdcDest, int xDest, int yDest, int wDest, int hDest, IntPtr hdcSrc, int xSrc, int ySrc, int wSrc, int hSrc, int rop);
 
+		[DllImport("gdi32.dll")]
+		private static extern int GetDIBits(IntPtr hdc, IntPtr hbmp, uint uStartScan, uint cScanLines, [Out] byte[] lpvBits, ref BITMAPINFOHEADER lpbi, uint uUsage);
+
+		[DllImport("user32.dll")]
+		private static extern bool IsHungAppWindow(IntPtr hwnd);
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct BITMAPINFOHEADER
+		{
+			public uint biSize;
+			public int biWidth;
+			public int biHeight;
+			public ushort biPlanes;
+			public ushort biBitCount;
+			public uint biCompression;
+			public uint biSizeImage;
+			public int biXPelsPerMeter;
+			public int biYPelsPerMeter;
+			public uint biClrUsed;
+			public uint biClrImportant;
+		}
+
 		/// <summary>
 		/// Captures what the window shows, without the invisible resize borders and scaled down to the given width.
 		/// Works for covered and hardware accelerated windows, but not for minimized ones. Can be called from any thread.
 		/// </summary>
 		public static BitmapSource? Capture(IWindow window, int maxWidth)
 		{
+			// PrintWindow waits for the app, a hanging app would keep the thread waiting for good
+			if (IsHungAppWindow(window.Handle))
+				return null;
+
 			var windowRect = new Win32.Rect();
 			if (!Win32.GetWindowRect(window.Handle, ref windowRect))
 				return null;
@@ -99,13 +125,22 @@ namespace StageManager.Native
 				SelectObject(smallDc, oldSmallBitmap);
 				oldSmallBitmap = IntPtr.Zero;
 
-				var source = Imaging.CreateBitmapSourceFromHBitmap(smallBitmap, IntPtr.Zero, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+				// the pixels are copied straight out of the bitmap, top row first
+				var header = new BITMAPINFOHEADER
+				{
+					biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+					biWidth = targetWidth,
+					biHeight = -targetHeight,
+					biPlanes = 1,
+					biBitCount = 32
+				};
 
-				// copy into an opaque bitmap, GDI leaves the alpha channel empty. Frozen, it can be used on the UI thread.
 				var stride = targetWidth * 4;
 				var pixels = new byte[stride * targetHeight];
-				source.CopyPixels(pixels, stride, 0);
+				if (GetDIBits(screenDc, smallBitmap, 0, (uint)targetHeight, pixels, ref header, 0) == 0)
+					return null;
 
+				// opaque, GDI leaves the alpha channel empty. Frozen, it can be used on the UI thread.
 				var picture = BitmapSource.Create(targetWidth, targetHeight, 96, 96, PixelFormats.Bgr32, null, pixels, stride);
 				picture.Freeze();
 				return picture;

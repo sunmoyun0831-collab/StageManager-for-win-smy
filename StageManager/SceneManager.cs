@@ -18,6 +18,9 @@ namespace StageManager
 		private readonly SettingsStore _settingsStore;
 		private readonly AppSettings _settings;
 		private readonly IStageAnimator _animator;
+		private readonly UserActivity _userActivity;
+		private readonly Dictionary<IntPtr, long> _createdAt = new Dictionary<IntPtr, long>();
+		private IntPtr _lastForeground;
 		private readonly List<Scene> _recentScenes = new List<Scene>();
 		private readonly HashSet<string> _pinnedApps;
 		private readonly HashSet<string> _excludedApps;
@@ -42,15 +45,31 @@ namespace StageManager
 		/// </summary>
 		private const int WINDOWS_REACTION_DELAY_MILLISECONDS = 300;
 
+		/// <summary>
+		/// A switch to another window follows the click or key press that asked for it right away
+		/// </summary>
+		private const int USER_ACTION_MILLISECONDS = 1500;
+
+		/// <summary>
+		/// New windows usually come up because the user opened something, they may come to the front within this time
+		/// </summary>
+		private const int NEW_WINDOW_MILLISECONDS = 3000;
+
 		public event EventHandler<SceneChangedEventArgs> SceneChanged;
 		public event EventHandler<CurrentSceneSelectionChangedEventArgs> CurrentSceneSelectionChanged;
+
+		/// <summary>
+		/// An app of the scene wanted to come to the front on its own and was kept off stage
+		/// </summary>
+		public event EventHandler<Scene>? AttentionRequested;
 
 		private IWindowStrategy WindowStrategy { get; } = new NormalizeAndMinimizeWindowStrategy(); // new WindowNormalizeStrategy/OpacityWindowStrategy/ShowAndHideWindowStrategy
 
 		public WindowsManager WindowsManager { get; }
 
-		public SceneManager(WindowsManager windowsManager, SettingsStore settingsStore, IStageAnimator animator)
+		public SceneManager(WindowsManager windowsManager, SettingsStore settingsStore, IStageAnimator animator, UserActivity userActivity)
 		{
+			_userActivity = userActivity ?? throw new ArgumentNullException(nameof(userActivity));
 			WindowsManager = windowsManager ?? throw new ArgumentNullException(nameof(windowsManager));
 			_settingsStore = settingsStore ?? throw new ArgumentNullException(nameof(settingsStore));
 			_animator = animator ?? throw new ArgumentNullException(nameof(animator));
@@ -206,14 +225,71 @@ namespace StageManager
 
 		private void WindowsManager_WindowUpdated(IWindow window, WindowUpdateType type)
 		{
-			if (type == WindowUpdateType.Foreground)
-				DebugLog.Write($"Foreground: {DebugLog.Describe(window)}{(_suspend ? ", ignored while switching" : "")}");
+			if (type != WindowUpdateType.Foreground)
+				return;
+
+			var previous = _lastForeground;
+			_lastForeground = window.Handle;
+
+			DebugLog.Write($"Foreground: {DebugLog.Describe(window)}{(_suspend ? ", ignored while switching" : "")}");
 
 			if (_suspend)
 				return;
 
-			if (type == WindowUpdateType.Foreground)
+			if (CameToFrontOnItsOwn(window, previous))
+				KeepOffStage(window, previous).SafeFireAndForget();
+			else
 				SwitchToSceneByWindow(window).SafeFireAndForget();
+		}
+
+		/// <summary>
+		/// Apps like Affinity bring their window to the front when they finished something in the background, like an export.
+		/// That must not pull the user away from the stage they are working on. Switches the user asked for come right after
+		/// a click (on the window, the taskbar, a notification, a pinned app) or Alt or the Windows key (Alt+Tab, Win+number),
+		/// or they don't start from the stage at all (Start menu, desktop, pinned apps). New windows may come to the front as well.
+		/// </summary>
+		private bool CameToFrontOnItsOwn(IWindow window, IntPtr previous)
+		{
+			if (AppsMaySwitchStages || _current is null)
+				return false;
+
+			if (FindSceneForWindow(window) is not Scene scene || scene.Equals(_current))
+				return false;
+
+			if (_userActivity.ActedWithin(USER_ACTION_MILLISECONDS) || IsNew(window))
+				return false;
+
+			return _current.Windows.Any(w => w.Handle == previous);
+		}
+
+		private bool IsNew(IWindow window) => _createdAt.TryGetValue(window.Handle, out var createdAt) && Environment.TickCount64 - createdAt <= NEW_WINDOW_MILLISECONDS;
+
+		/// <summary>
+		/// Gives the focus back to the window the user was working with and lets the app ask for attention instead,
+		/// like Windows does when it doesn't let an app come to the front
+		/// </summary>
+		private async Task KeepOffStage(IWindow window, IntPtr previous)
+		{
+			DebugLog.Write("  came to the front on its own, stays off stage");
+
+			// typing must go on where the user was, not into the app that came to the front
+			Win32Helper.ForceForegroundWindow(previous);
+			WindowAttention.Flash(window.Handle);
+
+			if (FindSceneForWindow(window) is Scene scene)
+				AttentionRequested?.Invoke(this, scene);
+
+			// apps may restore their window as well, right away or a moment later
+			for (var i = 0; i < 2; i++)
+			{
+				if (!window.IsMinimized && FindSceneForWindow(window) is Scene offStage && !offStage.Equals(_current))
+					MoveOffStage(new[] { window });
+
+				await Task.Delay(WINDOWS_REACTION_DELAY_MILLISECONDS).ConfigureAwait(true);
+
+				if (_stopped == 1)
+					return;
+			}
 		}
 
 		public bool IsPinned(IWindow window) => IsPinned(GetWindowGroupKey(window));
@@ -489,6 +565,9 @@ namespace StageManager
 
 		private void WindowsManager_UntrackedFocus(object? sender, IntPtr e)
 		{
+			var previous = _lastForeground;
+			_lastForeground = e;
+
 			DebugLog.Write($"Foreground (not tracked): 0x{e.ToInt64():X} {Win32Helper.GetClassName(e)}{(_suspend ? ", ignored while switching" : "")}");
 
 			if (_suspend)
@@ -506,7 +585,12 @@ namespace StageManager
 			// a dialog of a minimized app can come up on its own when it gets activated, its app has to come along
 			var owner = Win32.GetAncestor(e, Win32.GA.GA_ROOTOWNER);
 			if (owner != e && WindowsManager.Windows.FirstOrDefault(w => w.Handle == owner) is IWindow ownerWindow)
-				SwitchToSceneByWindow(ownerWindow).SafeFireAndForget();
+			{
+				if (CameToFrontOnItsOwn(ownerWindow, previous))
+					KeepOffStage(ownerWindow, previous).SafeFireAndForget();
+				else
+					SwitchToSceneByWindow(ownerWindow).SafeFireAndForget();
+			}
 		}
 
 		/// <summary>
@@ -529,6 +613,8 @@ namespace StageManager
 		{
 			lock (_hiddenWindowsLock)
 				_hiddenWindows.Remove(window);
+
+			_createdAt.Remove(window.Handle);
 
 			WindowSnapshots.Remove(window.Handle);
 
@@ -621,6 +707,12 @@ namespace StageManager
 		private async void WindowsManager_WindowCreated(IWindow window, bool firstCreate)
 		{
 			DebugLog.Write($"Created: {DebugLog.Describe(window)}{(IsSceneable(window) ? "" : ", ignored")}");
+
+			var now = Environment.TickCount64;
+			foreach (var old in _createdAt.Where(c => now - c.Value > NEW_WINDOW_MILLISECONDS).Select(c => c.Key).ToArray())
+				_createdAt.Remove(old);
+
+			_createdAt[window.Handle] = now;
 
 			if (!IsSceneable(window))
 				return;
@@ -768,6 +860,19 @@ namespace StageManager
 			set
 			{
 				_settings.Animations = value;
+				SaveSettings();
+			}
+		}
+
+		/// <summary>
+		/// Off by default: apps that bring their window to the front on their own don't switch stages, see <see cref="CameToFrontOnItsOwn"/>
+		/// </summary>
+		public bool AppsMaySwitchStages
+		{
+			get => _settings.AppsMaySwitchStages;
+			set
+			{
+				_settings.AppsMaySwitchStages = value;
 				SaveSettings();
 			}
 		}

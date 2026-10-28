@@ -25,6 +25,11 @@ namespace StageManager.Settings
 		public bool Animations { get; set; } = true;
 
 		/// <summary>
+		/// Apps that bring their window to the front on their own, like when they finished an export, may switch stages
+		/// </summary>
+		public bool AppsMaySwitchStages { get; set; }
+
+		/// <summary>
 		/// The desktop icon visibility before older versions hid the icons. Only set while they were running,
 		/// so a value found on startup means one of them did not exit cleanly and the icons have to be restored.
 		/// </summary>

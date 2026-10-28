@@ -54,38 +54,30 @@ namespace StageManager.Model
 			finally { DeleteObject(handle); }
 		}
 
-		public static ImageSource IconToImageSource(System.Drawing.Icon icon)
+		/// <summary>
+		/// One picture per program, shared by all its windows. Reading the icon from the executable every time a window
+		/// shows up in the sidebar kept adding icon handles while Stage Manager ran.
+		/// </summary>
+		private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ImageSource?> _icons = new(StringComparer.OrdinalIgnoreCase);
+
+		private static ImageSource? GetIcon(IWindow window)
 		{
-			if (icon is null)
+			if (window is not WindowsWindow windowsWindow || string.IsNullOrEmpty(windowsWindow.ProcessFileName))
 				return null;
 
-			//// TODO check memory leaks
+			return _icons.GetOrAdd(windowsWindow.ProcessFileName, _ =>
+			{
+				using var icon = windowsWindow.ExtractIcon();
+				if (icon is null)
+					return null;
 
-			var bmp = System.Drawing.Bitmap.FromHicon(icon.Handle);
-
-			var imageSource = Imaging.CreateBitmapSourceFromHIcon(
-				icon.Handle,
-				Int32Rect.Empty,
-				BitmapSizeOptions.FromEmptyOptions());
-
-			return imageSource;
-
-			// Alternativ - vergleichen
-
-			//using (var stream = new MemoryStream())
-			//{
-			//	icon.ToBitmap().Save(stream, ImageFormat.Png);
-			//	var bitmapImage = new BitmapImage();
-			//	bitmapImage.BeginInit();
-			//	bitmapImage.StreamSource = new MemoryStream(stream.ToArray());
-			//	bitmapImage.EndInit();
-			//	bitmapImage.Freeze();
-
-			//	return bitmapImage;
-			//}
+				var source = Imaging.CreateBitmapSourceFromHIcon(icon.Handle, Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
+				source.Freeze();
+				return source;
+			});
 		}
 
-		public ImageSource Icon => _iconSource ??= IconToImageSource((Window as WindowsWindow).ExtractIcon());
+		public ImageSource? Icon => _iconSource ??= GetIcon(Window);
 
 		public IWindow Window
 		{

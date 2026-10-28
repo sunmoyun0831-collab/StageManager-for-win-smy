@@ -198,65 +198,86 @@
                                 BorderThickness="3"
                                 CornerRadius="10"
                                 Padding="6">
-                                <ItemsControl
-                                    ItemsSource="{Binding Windows}">
-                                    <ItemsControl.ItemsPanel>
-                                        <ItemsPanelTemplate>
-                                            <Grid
-                                                Margin="0,0,0,0"></Grid>
-                                        </ItemsPanelTemplate>
-                                    </ItemsControl.ItemsPanel>
-                                    <!-- the windows of a scene are stacked, the front window on top -->
-                                    <ItemsControl.ItemContainerStyle>
-                                        <Style
-                                            TargetType="{x:Type ContentPresenter}">
-                                            <Setter
-                                                Property="Panel.ZIndex"
-                                                Value="{Binding ZIndex}" />
-                                            <Setter
-                                                Property="Visibility"
-                                                Value="{Binding StackVisibility}" />
-                                        </Style>
-                                    </ItemsControl.ItemContainerStyle>
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Grid
-                                                Width="200"
-                                                Height="130">
-                                                <!-- flat thumbnails can't go back in depth, they are stacked by shrinking and moving them -->
-                                                <local:DwmThumbnail
-                                                    PreviewHandle="{Binding Handle}"
-                                                    Style="{StaticResource VisibleWithoutSnapshot}"
-                                                    Width="170"
-                                                    Height="105"
-                                                    RenderTransformOrigin="0.5,0.5">
-                                                    <local:DwmThumbnail.RenderTransform>
-                                                        <TransformGroup>
-                                                            <ScaleTransform
-                                                                ScaleX="{Binding StackScale}"
-                                                                ScaleY="{Binding StackScale}" />
-                                                            <TranslateTransform
-                                                                X="{Binding StackOffsetX}"
-                                                                Y="{Binding StackOffsetY}" />
-                                                        </TransformGroup>
-                                                    </local:DwmThumbnail.RenderTransform>
-                                                </local:DwmThumbnail>
-                                                <local:TiltedImage
-                                                    Source="{Binding Snapshot}"
-                                                    StackIndex="{Binding StackIndex}"
-                                                    Style="{StaticResource TiltedCard}"
-                                                    Visibility="{Binding HasSnapshot, Converter={StaticResource BooleanToVisibility}}">
-                                                    <local:TiltedImage.Effect>
-                                                        <DropShadowEffect
-                                                            BlurRadius="18"
-                                                            ShadowDepth="4"
-                                                            Opacity="0.45" />
-                                                    </local:TiltedImage.Effect>
-                                                </local:TiltedImage>
-                                            </Grid>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                <Grid>
+                                    <ItemsControl
+                                        ItemsSource="{Binding Windows}">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <Grid
+                                                    Margin="0,0,0,0"></Grid>
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <!-- the windows of a scene are stacked, the front window on top -->
+                                        <ItemsControl.ItemContainerStyle>
+                                            <Style
+                                                TargetType="{x:Type ContentPresenter}">
+                                                <Setter
+                                                    Property="Panel.ZIndex"
+                                                    Value="{Binding ZIndex}" />
+                                                <Setter
+                                                    Property="Visibility"
+                                                    Value="{Binding StackVisibility}" />
+                                            </Style>
+                                        </ItemsControl.ItemContainerStyle>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid
+                                                    Width="200"
+                                                    Height="130">
+                                                    <!-- flat thumbnails can't go back in depth, they are stacked by shrinking and moving them -->
+                                                    <local:DwmThumbnail
+                                                        PreviewHandle="{Binding Handle}"
+                                                        Style="{StaticResource VisibleWithoutSnapshot}"
+                                                        Width="170"
+                                                        Height="105"
+                                                        RenderTransformOrigin="0.5,0.5">
+                                                        <local:DwmThumbnail.RenderTransform>
+                                                            <TransformGroup>
+                                                                <ScaleTransform
+                                                                    ScaleX="{Binding StackScale}"
+                                                                    ScaleY="{Binding StackScale}" />
+                                                                <TranslateTransform
+                                                                    X="{Binding StackOffsetX}"
+                                                                    Y="{Binding StackOffsetY}" />
+                                                            </TransformGroup>
+                                                        </local:DwmThumbnail.RenderTransform>
+                                                    </local:DwmThumbnail>
+                                                    <local:TiltedImage
+                                                        Source="{Binding Snapshot}"
+                                                        StackIndex="{Binding StackIndex}"
+                                                        Style="{StaticResource TiltedCard}"
+                                                        Visibility="{Binding HasSnapshot, Converter={StaticResource BooleanToVisibility}}">
+                                                        <local:TiltedImage.Effect>
+                                                            <DropShadowEffect
+                                                                BlurRadius="18"
+                                                                ShadowDepth="4"
+                                                                Opacity="0.45" />
+                                                        </local:TiltedImage.Effect>
+                                                    </local:TiltedImage>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <!-- an app of the scene wanted to come to the front on its own -->
+                                    <Ellipse
+                                        Width="12"
+                                        Height="12"
+                                        Margin="0,-4,-4,0"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Top"
+                                        Fill="{DynamicResource Menu.Accent}"
+                                        Stroke="White"
+                                        StrokeThickness="2"
+                                        IsHitTestVisible="False"
+                                        Visibility="{Binding NeedsAttention, Converter={StaticResource BooleanToVisibility}}">
+                                        <Ellipse.Effect>
+                                            <DropShadowEffect
+                                                BlurRadius="6"
+                                                ShadowDepth="1"
+                                                Opacity="0.4" />
+                                        </Ellipse.Effect>
+                                    </Ellipse>
+                                </Grid>
                             </Border>
                             <!-- Icons, overlapping the bottom of the cards like on macOS -->
                             <ItemsControl
@@ -326,6 +347,16 @@
                             Click="MenuItem_Animations_Click">
                             <MenuItem.Icon>
                                 <TextBlock Text="&#xE945;" />
+                            </MenuItem.Icon>
+                        </MenuItem>
+                        <MenuItem
+                            x:Name="appsSwitchStagesMenuItem"
+                            Header="Apps may switch stages on their own"
+                            IsCheckable="True"
+                            StaysOpenOnClick="True"
+                            Click="MenuItem_AppsSwitchStages_Click">
+                            <MenuItem.Icon>
+                                <TextBlock Text="&#xE8AB;" />
                             </MenuItem.Icon>
                         </MenuItem>
                         <MenuItem

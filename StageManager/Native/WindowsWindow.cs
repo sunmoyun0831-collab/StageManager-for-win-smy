@@ -32,11 +32,22 @@ namespace StageManager.Native
 
 			try
 			{
-				var process = GetProcessByWindowHandle(_handle);
-				_processId = process.Id;
-				_processName = process.ProcessName;
-				_processExecutable = GetProcessExecutable(process);
-				_processFileName = string.IsNullOrEmpty(_processExecutable) ? "--NA--" : Path.GetFileName(_processExecutable);
+				Win32.GetWindowThreadProcessId(handle, out var processId);
+				_processId = (int)processId;
+				_processExecutable = GetProcessExecutable(_processId);
+
+				if (string.IsNullOrEmpty(_processExecutable))
+				{
+					// protected system processes don't tell their executable, the slow way still gets their name
+					using var process = Process.GetProcessById(_processId);
+					_processName = process.ProcessName;
+					_processFileName = "--NA--";
+				}
+				else
+				{
+					_processName = Path.GetFileNameWithoutExtension(_processExecutable);
+					_processFileName = Path.GetFileName(_processExecutable);
+				}
 			}
 			catch (Exception)
 			{
@@ -46,46 +57,25 @@ namespace StageManager.Native
 			}
 		}
 
-		private Process GetProcessByWindowHandle(IntPtr windowHandle)
+		/// <summary>
+		/// Windows are looked at whenever any app shows one, even tooltips and menus, so this has to be quick.
+		/// The limited query is a single call and works for elevated processes like the Task Manager as well.
+		/// </summary>
+		private static string? GetProcessExecutable(int processId)
 		{
-			Win32.GetWindowThreadProcessId(windowHandle, out var processId);
+			var processHandle = Win32.OpenProcess(Win32.PROCESS_QUERY_LIMITED_INFORMATION, false, processId);
+			if (processHandle == IntPtr.Zero)
+				return null;
 
-			var result = (int)processId;
-
-			var process = Process.GetProcessById(result);
-
-			// handling for UWP apps
-			if (process.ProcessName.Contains("ApplicationFrameHost"))
-			{
-				// TODO
-			}
-
-			return process;
-		}
-
-		private static string? GetProcessExecutable(Process process)
-		{
 			try
 			{
-				return process.MainModule?.FileName;
+				var buffer = new StringBuilder(1024);
+				var size = buffer.Capacity;
+				return Win32.QueryFullProcessImageName(processHandle, 0, buffer, ref size) ? buffer.ToString() : null;
 			}
-			catch (System.ComponentModel.Win32Exception)
+			finally
 			{
-				// MainModule is not accessible for elevated processes like the Task Manager, the limited query works for those as well
-				var processHandle = Win32.OpenProcess(Win32.PROCESS_QUERY_LIMITED_INFORMATION, false, process.Id);
-				if (processHandle == IntPtr.Zero)
-					return null;
-
-				try
-				{
-					var buffer = new StringBuilder(1024);
-					var size = buffer.Capacity;
-					return Win32.QueryFullProcessImageName(processHandle, 0, buffer, ref size) ? buffer.ToString() : null;
-				}
-				finally
-				{
-					Win32.CloseHandle(processHandle);
-				}
+				Win32.CloseHandle(processHandle);
 			}
 		}
 

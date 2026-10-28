@@ -1,6 +1,7 @@
 ﻿using AsyncAwaitBestPractices;
 using Microsoft.Xaml.Behaviors.Core;
 using SharpHook;
+using SharpHook.Native;
 using StageManager.Model;
 using StageManager.Native;
 using StageManager.Native.PInvoke;
@@ -42,13 +43,23 @@ namespace StageManager
 		private const double EYE_DISTANCE_FACTOR = 0.5;
 		private const int DRAG_HOVER_MILLISECONDS = 600;
 		private const int QUIT_TIMEOUT_MILLISECONDS = 3000;
+
+		/// <summary>
+		/// How often windows that are gone without Windows telling are forgotten, and how many of those rounds pass between resource logs
+		/// </summary>
+		private const int MAINTENANCE_MINUTES = 1;
+		private const int RESOURCE_LOG_ROUNDS = 5;
 		private const string PROJECT_PAGE = "https://github.com/sunmoyun0831-collab/smy-room";
 		private IntPtr _thisHandle;
-		private TaskPoolGlobalHook _hook;
+		private SimpleGlobalHook? _hook;
+		private volatile bool _isMenuOpen;
+		private readonly UserActivity _userActivity = new UserActivity();
 		private WindowMode _mode;
 		private int _modeVersion;
 		private DispatcherTimer _overlapCheckTimer;
 		private DispatcherTimer _edgeDwellTimer;
+		private DispatcherTimer _maintenanceTimer;
+		private int _maintenanceRounds;
 		private Point _mouse = new Point(0, 0);
 		private volatile bool _mouseAtEdge;
 		private Rect _sidebarZone;
@@ -84,6 +95,9 @@ namespace StageManager
 
 			_dragHoverTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(DRAG_HOVER_MILLISECONDS) };
 			_dragHoverTimer.Tick += DragHoverTimer_Tick;
+
+			_maintenanceTimer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(MAINTENANCE_MINUTES) };
+			_maintenanceTimer.Tick += MaintenanceTimer_Tick;
 
 			DpiChanged += (_, _) => Dispatcher.BeginInvoke(UpdateSidebarGeometry);
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged += SystemEvents_DisplaySettingsChanged;
@@ -125,6 +139,7 @@ namespace StageManager
 			RunQuitStep("removing the tray icon", trayIcon.Dispose);
 
 			_overlapCheckTimer.Stop();
+			_maintenanceTimer.Stop();
 			Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= SystemEvents_DisplaySettingsChanged;
 
 			base.OnClosed(e);
@@ -174,12 +189,13 @@ namespace StageManager
 			_thisHandle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
 
 			var windowsManager = new WindowsManager();
-			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), new StageAnimator(FindCard));
+			SceneManager = new SceneManager(windowsManager, SettingsStore.CreateDefault(), new StageAnimator(FindCard), _userActivity);
 			App.RestoreState = SceneManager.Stop;
 			await SceneManager.Start().ConfigureAwait(true);
 
 			SceneManager.SceneChanged += SceneManager_SceneChanged;
 			SceneManager.CurrentSceneSelectionChanged += SceneManager_CurrentSceneSelectionChanged;
+			SceneManager.AttentionRequested += SceneManager_AttentionRequested;
 			SceneManager.WindowsManager.WindowUpdated += WindowsManager_WindowUpdated;
 			WindowSnapshots.Updated += WindowSnapshots_Updated;
 
@@ -199,6 +215,22 @@ namespace StageManager
 				await SceneManager.SwitchTo(foregroundScene, animate: false).ConfigureAwait(true);
 
 			_overlapCheckTimer.Start();
+			_maintenanceTimer.Start();
+		}
+
+		/// <summary>
+		/// Stage Manager runs for days, nothing may pile up meanwhile
+		/// </summary>
+		private void MaintenanceTimer_Tick(object? sender, EventArgs e)
+		{
+			if (SceneManager is null)
+				return;
+
+			SceneManager.WindowsManager.ForgetClosedWindows();
+			WindowSnapshots.ForgetClosedWindows();
+
+			if (++_maintenanceRounds % RESOURCE_LOG_ROUNDS == 0)
+				DebugLog.WriteResources(SceneManager.WindowsManager.Windows.Count());
 		}
 
 		private void WindowSnapshots_Updated(IntPtr handle)
@@ -218,9 +250,19 @@ namespace StageManager
 			}
 		}
 
+		private void SceneManager_AttentionRequested(object? sender, Scene scene)
+		{
+			if (AllScenes.FirstOrDefault(m => m.Id == scene.Id) is SceneModel model)
+				model.NeedsAttention = true;
+		}
+
 		private void SceneManager_CurrentSceneSelectionChanged(object? sender, CurrentSceneSelectionChangedEventArgs args)
 		{
 			var currentModel = args.Current is null ? null : Scenes.FirstOrDefault(m => m.Id == args.Current.Id);
+
+			// the user went to see what the app wanted
+			if (currentModel is not null)
+				currentModel.NeedsAttention = false;
 
 			if (currentModel is object)
 			{
@@ -329,7 +371,9 @@ namespace StageManager
 
 		private void OnMousePressed(object? sender, MouseHookEventArgs e)
 		{
-			if (e.Data.Button != SharpHook.Native.MouseButton.Button1)
+			_userActivity.Acted();
+
+			if (e.Data.Button != SharpHook.Native.MouseButton.Button1 || _isMenuOpen)
 				return;
 
 			var screenPoint = new Point(e.Data.X, e.Data.Y);
@@ -342,6 +386,8 @@ namespace StageManager
 
 		private void OnMouseReleased(object? sender, MouseHookEventArgs e)
 		{
+			_userActivity.Acted();
+
 			if (e.Data.Button != SharpHook.Native.MouseButton.Button1)
 				return;
 
@@ -643,28 +689,52 @@ namespace StageManager
 			BeginAnimation(LeftProperty, animation);
 		}
 
+		/// <summary>
+		/// One hook for the whole time Stage Manager runs, on a thread of its own. Starting and stopping it for every menu
+		/// could leave hooks behind that kept slowing down the mouse. The handlers run on the hook thread and must be quick,
+		/// they only take note and hand the work to the UI thread.
+		/// </summary>
 		private void StartHook()
 		{
-			_hook = new TaskPoolGlobalHook();
+			var hook = new SimpleGlobalHook();
+			_hook = hook;
 
-			_hook.MousePressed += OnMousePressed;
-			_hook.MouseReleased += OnMouseReleased;
-			_hook.MouseMoved += _hook_MouseMoved;
-			_hook.MouseDragged += _hook_MouseMoved;
+			hook.MousePressed += OnMousePressed;
+			hook.MouseReleased += OnMouseReleased;
+			hook.MouseMoved += _hook_MouseMoved;
+			hook.MouseDragged += _hook_MouseMoved;
+			hook.KeyPressed += OnKeyChanged;
+			hook.KeyReleased += OnKeyChanged;
 
-			Task.Run(_hook.Run);
+			var thread = new Thread(() =>
+			{
+				try
+				{
+					hook.Run();
+				}
+				catch (Exception ex) when (ex is HookException or ObjectDisposedException)
+				{
+					App.Log(ex);
+				}
+			})
+			{
+				IsBackground = true,
+				Name = "MouseHook"
+			};
+
+			thread.Start();
 		}
 
 		private void StopHook()
 		{
-			_hook.MousePressed -= OnMousePressed;
-			_hook.MouseReleased -= OnMouseReleased;
-			_hook.MouseMoved -= _hook_MouseMoved;
-			_hook.MouseDragged -= _hook_MouseMoved;
+			if (_hook is not SimpleGlobalHook hook)
+				return;
+
+			_hook = null;
 
 			try
 			{
-				_hook.Dispose();
+				hook.Dispose();
 			}
 			catch (HookException ex)
 			{
@@ -674,7 +744,16 @@ namespace StageManager
 		}
 
 		/// <summary>
-		/// Called on a thread pool thread for every mouse move, also while dragging (windows, files, ...)
+		/// Alt+Tab and the Windows key switch windows, see <see cref="UserActivity"/>. Other keys are not looked at.
+		/// </summary>
+		private void OnKeyChanged(object? sender, KeyboardHookEventArgs e)
+		{
+			if (e.Data.KeyCode is KeyCode.VcLeftAlt or KeyCode.VcRightAlt or KeyCode.VcLeftMeta or KeyCode.VcRightMeta)
+				_userActivity.Acted();
+		}
+
+		/// <summary>
+		/// Called on the hook thread for every mouse move, also while dragging (windows, files, ...)
 		/// </summary>
 		private void _hook_MouseMoved(object? sender, MouseHookEventArgs e)
 		{
@@ -861,16 +940,22 @@ namespace StageManager
 
 		private void ContextMenu_Closed(object sender, RoutedEventArgs e)
 		{
-			if (!_isQuitting)
-				StartHook();
+			_isMenuOpen = false;
 		}
 
 		private void ContextMenu_Opened(object sender, RoutedEventArgs e)
 		{
-			StopHook();
+			_isMenuOpen = true;
 			FillAppMenus();
 			debugLogMenuItem.IsChecked = DebugLog.Enabled;
 			animationsMenuItem.IsChecked = SceneManager?.Animations ?? true;
+			appsSwitchStagesMenuItem.IsChecked = SceneManager?.AppsMaySwitchStages ?? false;
+		}
+
+		private void MenuItem_AppsSwitchStages_Click(object sender, RoutedEventArgs e)
+		{
+			if (SceneManager is not null)
+				SceneManager.AppsMaySwitchStages = appsSwitchStagesMenuItem.IsChecked;
 		}
 
 		private void MenuItem_Animations_Click(object sender, RoutedEventArgs e)
@@ -882,6 +967,7 @@ namespace StageManager
 		private void MenuItem_DebugLog_Click(object sender, RoutedEventArgs e)
 		{
 			DebugLog.Enabled = debugLogMenuItem.IsChecked;
+			DebugLog.WriteResources(SceneManager?.WindowsManager.Windows.Count() ?? 0);
 
 			// show the file when the log is stopped, that's when it gets sent
 			if (!DebugLog.Enabled && System.IO.File.Exists(DebugLog.Path))
@@ -890,7 +976,7 @@ namespace StageManager
 
 		private void SceneContextMenu_Opened(object sender, RoutedEventArgs e)
 		{
-			StopHook();
+			_isMenuOpen = true;
 		}
 
 		/// <summary>
